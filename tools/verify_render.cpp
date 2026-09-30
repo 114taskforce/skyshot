@@ -187,6 +187,50 @@ static int check(void) {
            packSec, packWorst);
     printf("     （天空已抖动，推屏用普通取整，理论上应 ≤1 级）\n");
     if (packWorst > 1.5) { printf("    !! 打包不是恒等变换，检查 pack565Round\n"); return 1; }
+
+    // ---- 2c. 抖动质量 ----
+    // 逐像素误差 = 抖动噪声 + 565 本身的取整距离（后者最多 ±4.1 级，无法避免）。
+    // 所以看两个量：块内误差标准差（= 纯抖动噪声幅度，越小越不"花"）、
+    //             块均值误差（= 平均色准不准，应接近 0）。
+    double blkMax = 0, blkSum = 0, stdMax = 0, stdSum = 0;
+    long nb = 0;
+    for (int by = 0; by < RENDER_RES; by += 4) {
+      uint8_t rows[4][RENDER_RES * 3];
+      for (int dy = 0; dy < 4; dy++) renderSkyRow(rows[dy], by + dy, &fs);
+
+      for (int bx = 0; bx < RENDER_RES; bx += 4) {
+        for (int ch = 0; ch < 3; ch++) {
+          double e[16], s = 0;
+          for (int k = 0; k < 16; k++) {
+            const int x = bx + (k & 3), y = by + (k >> 2);
+            const uint16_t c = g_sky[y * RENDER_RES + x];
+            const int r5 = (c >> 11) & 0x1F, g6 = (c >> 5) & 0x3F, b5 = c & 0x1F;
+            const double got = (ch == 0) ? (double)((r5 << 3) | (r5 >> 2))
+                             : (ch == 1) ? (double)((g6 << 2) | (g6 >> 4))
+                                         : (double)((b5 << 3) | (b5 >> 2));
+            e[k] = got - rows[k >> 2][x * 3 + ch];
+            s += e[k];
+          }
+          const double mean = s / 16.0;
+          double var = 0;
+          for (int k = 0; k < 16; k++) var += (e[k] - mean) * (e[k] - mean);
+          const double sd = sqrt(var / 16.0);
+          blkSum += fabs(mean);
+          stdSum += sd;
+          nb++;
+          if (fabs(mean) > blkMax) blkMax = fabs(mean);
+          if (sd > stdMax) stdMax = sd;
+        }
+      }
+    }
+    printf("[2c] 抖动质量：块均值误差最大 %.2f 级（平均色准），平均 %.3f 级\n", blkMax, blkSum / nb);
+    printf("     块内标准差最大 %.2f / 平均 %.2f 级（抖动噪声，565 下的理论量级 ~2.4）\n",
+           stdMax, stdSum / nb);
+    printf("     说明：565 的量化格 R/B 为 255/31≈8.23 级，抖动噪声属固有代价；\n");
+    printf("          不加抖动则会变成可见色带，所以这里只保证「平均色不失真」\n");
+    if (blkMax > 2.0) { printf("    !! 块均值偏大，抖动把平均色带偏了\n"); return 1; }
+    // 陡梯度区（太阳光晕边缘）块内理想值本身在变，误差分布更宽，峰值到 5 级属正常
+    if (stdMax > 5.5) { printf("    !! 抖动噪声异常偏大\n"); return 1; }
   } else {
     printf("[2b] 24 h 内没有无星无月的帧，跳过打包检查\n");
   }

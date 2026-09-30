@@ -34,6 +34,15 @@ SUN_ANG_RAD = 0.2665 * BODY_MAGNIFY
 MOON_ANG_RAD = 0.2590 * BODY_MAGNIFY
 MIN_BODY_RAD_PX = 5.0
 
+# 固件有意偏离 sunset.html 的地方（否则这些像素会被误判成"不一致"）：
+#   1) 天体尺寸放大 4 倍（HTML 是 2 倍）
+#   2) 金色时刻三档地平色改得更金黄，见 src/sky.cpp 的注释
+SKY_H_OVERRIDE = {
+    4.0:  (240, 202, 148),
+    1.0:  (250, 182, 108),
+    -1.0: (246, 148, 80),
+}
+
 TOL = 3.0          # 天空允许的级差（量化 + float/double 差异）
 
 
@@ -360,6 +369,7 @@ def main():
                 cfg[mapping[k]] = float(v)
 
     sky_keys, h_opp, stars = parse_tables()
+    sky_keys = [(a, z, list(SKY_H_OVERRIDE.get(a, h))) for a, z, h in sky_keys]   # 同步固件的有意偏离
     print(f'[html] 解析到 {len(sky_keys)} 个天空关键帧 / {len(h_opp)} 个 H_OPP / {len(stars)} 颗星')
 
     # ---- 参考实现 ----
