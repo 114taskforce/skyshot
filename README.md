@@ -149,6 +149,12 @@ python tools/ppm2png.py out.ppm out.png
 
 其他工具：
 
+- `tools/verify_html.py` — 与 `sunset.html` 的**独立对照**：用 Python 按 HTML 的公式另写一套参考实现
+  （关键数据表直接从 HTML 里解析，不手抄），再与固件导出逐像素 / 逐星比对。三帧实测：
+  太阳位置差 `~1e-5°`、天空最大 1–2 级（差值正好等于 HTML 那套量化，即固件更准）、星表位置差 `0.0000 px`
+  ```bash
+  python tools/verify_html.py 1790243400 az=270   # 金色时刻朝西
+  ```
 - `tools/html2header.py` — 把 `webui.html` 去注释、折叠空白、gzip 后生成 `include/web_ui.h`
 - `tools/monitor.py` — 抓串口日志（非交互，可定时长）
 - `tools/ppm2png.py` — PPM → PNG（纯 Python，无依赖），支持裁剪放大看月亮
