@@ -445,6 +445,27 @@ static int dumpMoonShape(double illum, int waxing, double r, int scale, const ch
 }
 
 // ===========================================================================
+// 天空层纯 888 导出（不含抖动 / 打包 / 星月）：供与 sunset.html 参考实现逐像素比对
+static int dumpSky888(double sec, const char *path) {
+  static FrameState fs;
+  static uint8_t row[RENDER_RES * 3];
+
+  frameStateCompute(&fs, &g_cfg, jdOf(sec));
+
+  FILE *f = fopen(path, "wb");
+  if (!f) { printf("!! 无法写 %s\n", path); return 1; }
+  fprintf(f, "P6\n%d %d\n255\n", RENDER_RES, RENDER_RES);
+  for (int y = 0; y < RENDER_RES; y++) {
+    renderSkyRow(row, y, &fs);
+    fwrite(row, 1, RENDER_RES * 3, f);
+  }
+  fclose(f);
+  printf("%s: sky888 sun alt=%.4f az=%.4f | camAz=%.1f fov=%.1f baseAlt=%.1f\n",
+         path, fs.sunAlt, fs.sunAz, g_cfg.camAz, g_cfg.fov, g_cfg.baseAlt);
+  return 0;
+}
+
+// ===========================================================================
 int main(int argc, char **argv) {
   astroInit();
   skyConfigDefaults(&g_cfg);
@@ -453,6 +474,18 @@ int main(int argc, char **argv) {
 
   const char *mode = argc > 1 ? argv[1] : "check";
 
+  // 可选覆盖：形如 az=270 / fov=60 / baseAlt=10 / lat=39.9 / lon=116.4 / twinkle=0.5，
+  // 放在位置参数之后（不占用位置参数的下标）
+  for (int i = 1; i < argc; i++) {
+    if (strncmp(argv[i], "az=", 3) == 0)           g_cfg.camAz   = atof(argv[i] + 3);
+    else if (strncmp(argv[i], "fov=", 4) == 0)     g_cfg.fov     = atof(argv[i] + 4);
+    else if (strncmp(argv[i], "baseAlt=", 8) == 0) g_cfg.baseAlt = atof(argv[i] + 8);
+    else if (strncmp(argv[i], "lat=", 4) == 0)     g_cfg.lat     = atof(argv[i] + 4);
+    else if (strncmp(argv[i], "lon=", 4) == 0)     g_cfg.lon     = atof(argv[i] + 4);
+    else if (strncmp(argv[i], "twinkle=", 8) == 0) g_cfg.twinkle = atof(argv[i] + 8);
+  }
+  skyConfigClamp(&g_cfg);
+
   if (strcmp(mode, "check") == 0) return check();
   if (strcmp(mode, "pixel") == 0 && argc > 4) { dumpPixel(atoi(argv[2]), atoi(argv[3]), atof(argv[4])); return 0; }
   if (strcmp(mode, "block") == 0 && argc > 4) { dumpBlock(atoi(argv[2]), atoi(argv[3]), atof(argv[4])); return 0; }
@@ -460,6 +493,7 @@ int main(int argc, char **argv) {
   if (strcmp(mode, "csv") == 0) { dumpCsv(); return 0; }
   if (strcmp(mode, "stars") == 0 && argc > 2) { dumpStars(atof(argv[2])); return 0; }
   if (strcmp(mode, "ppm") == 0 && argc > 3) return dumpPpm(atof(argv[2]), argv[3]);
+  if (strcmp(mode, "sky888") == 0 && argc > 3) return dumpSky888(atof(argv[2]), argv[3]);
   if (strcmp(mode, "moon") == 0 && argc > 5) { return dumpZoom(atof(argv[2]), atoi(argv[3]), atoi(argv[4]), argv[5]); }
   if (strcmp(mode, "moonshape") == 0 && argc > 6) {
     return dumpMoonShape(atof(argv[2]), atoi(argv[3]), atof(argv[4]), atoi(argv[5]), argv[6]);

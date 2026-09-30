@@ -39,7 +39,8 @@
 // ---- 地点与相机 ----
 #define CFG_LAT         39.9          // 纬度，北正
 #define CFG_LON         116.4         // 经度，东正
-#define CFG_CAM_AZ      180.0         // 面对方向：方位角，正北 0°，顺时针
+#define CFG_CAM_AZ      270.0         // 面对方向：方位角，正北 0°，顺时针
+                                      // 270 = 正西（看日落/金色时刻）；90 = 正东（看日出）；180 = 正南
 #define CFG_FOV         68.0          // 视场角
 #define CFG_BASE_ALT    0.0           // 底边高度角
 #define CFG_TWINKLE     0.55          // 闪烁强度，0 = 不闪
