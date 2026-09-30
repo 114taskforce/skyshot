@@ -436,6 +436,10 @@ def main():
         print('    HTML:', [f'({b[0]:.1f},{b[1]:.1f})' for b in ref_stars])
 
     ok = worst <= TOL and len(fw_stars) == len(ref_stars)
+    # 机器可读的 ASCII 结果行（供脚本调用，避开控制台编码问题）
+    print(f'RESULT sec={sec:.0f} sunAlt={fw_alt:.4f} sunAz={fw_az:.4f} '
+          f'skyMax={worst:.0f} skyMean={wsum / (RES*RES*3):.3f} '
+          f'stars={len(fw_stars)}/{len(ref_stars)} ok={1 if ok else 0}')
     print('\n结论：' + ('一致（差异都在量化/精度范围内）' if ok else '存在超出容差的差异'))
     return 0 if ok else 1
 
