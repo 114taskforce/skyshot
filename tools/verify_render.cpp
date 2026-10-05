@@ -29,8 +29,16 @@
 // 自检 / 导出用的默认配置（取自 config.h）
 static SkyConfig g_cfg;
 
-// 天空层缓存（整帧大小与设备一致）
-static uint16_t g_sky[RENDER_RES * RENDER_RES];
+// 画布尺寸随 SkyConfig::rot 变化（0/2 竖屏 240×320，1/3 横屏 320×240）
+static int GW = 320, GH = 240;
+static void useCfg(void) {
+  skyConfigClamp(&g_cfg);
+  GW = skyScreenW(g_cfg.rot);
+  GH = skyScreenH(g_cfg.rot);
+}
+
+// 天空层缓存（按面板最大尺寸；两种方向像素总数相同）
+static uint8_t g_sky[RENDER_SKY_BYTES(SCREEN_MAX_PX)];
 
 static double jdOf(double sec) { return sec / 86400.0 + 2440587.5; }
 
@@ -103,8 +111,8 @@ static int check(void) {
   ProjCtx ctx;
   projBegin(&g_cfg, &ctx);
   double maxAltErr = 0, maxAzErr = 0;
-  for (int y = 0; y < PROJ_RES; y++) {
-    for (int x = 0; x < PROJ_RES; x++) {
+  for (int y = 0; y < GH; y++) {
+    for (int x = 0; x < GW; x++) {
       SkyDir d;
       projPixelDir(&ctx, x, y, &d);
 
@@ -132,10 +140,10 @@ static int check(void) {
   const double secs[] = { 1790251200.0, 1790251200.0 + 6 * 3600, 1790251200.0 + 12 * 3600 };
   for (int k = 0; k < 3; k++) {
     frameStateCompute(&fs, &g_cfg, jdOf(secs[k]));
-    for (int y = 0; y < RENDER_RES; y++) {
-      uint8_t row[RENDER_RES * 3];
+    for (int y = 0; y < GH; y++) {
+      uint8_t row[SCREEN_MAX_DIM * 3];
       renderSkyRow(row, y, &fs);
-      for (int x = 0; x < RENDER_RES; x++) {
+      for (int x = 0; x < GW; x++) {
         double rgb[3];
         skyColorExact(x, y, &fs, rgb);
         for (int ch = 0; ch < 3; ch++) {
@@ -151,7 +159,7 @@ static int check(void) {
   printf("    逐通道最大偏差 %.2f 级（@%d,%d），平均 %.4f 级\n", worst, worstX, worstY, sum / nPix);
   if (worst > 2.0) { printf("    !! 偏差过大，天空层算式可能写错\n"); return 1; }
 
-  // ---- 2b. 缓存 + 打包：565 推屏结果 vs 888 参考 ----
+  // ---- 2b. 缓存 + 18 位量化：从缓存取回 vs 独立精确参考 ----
   // 挑一帧没有星也没有月的（正午前后），此时只有天空，逐像素应当几乎恒等
   double packSec = 0;
   bool found = false;
@@ -162,77 +170,40 @@ static int check(void) {
   }
   if (found) {
     buildSky(&fs, packSec);
-    double packWorst = 0, meanWorst = 0;
-    for (int y = 0; y < RENDER_RES; y++) {
-      uint8_t row[RENDER_RES * 3];
-      uint16_t row565[RENDER_RES];
-      renderFrameRow(row, y, &fs, g_sky);
-      renderFrameRow565(row565, y, &fs, g_sky);
-      for (int x = 0; x < RENDER_RES; x++) {
-        const uint16_t c = row565[x];
-        const int r5 = (c >> 11) & 0x1F, g6 = (c >> 5) & 0x3F, b5 = c & 0x1F;
-        const double got[3] = {
-          (double)((r5 << 3) | (r5 >> 2)),
-          (double)((g6 << 2) | (g6 >> 4)),
-          (double)((b5 << 3) | (b5 >> 2)),
-        };
-        for (int ch = 0; ch < 3; ch++) {
-          const double d = fabs(got[ch] - row[x * 3 + ch]);
-          if (d > packWorst) packWorst = d;
-        }
-      }
-    }
-    (void)meanWorst;
-    printf("[2b] 缓存 + 565 打包（无星无月帧 @%.0f）：逐像素最大偏差 %.2f 级\n",
-           packSec, packWorst);
-    printf("     （天空已抖动，推屏用普通取整，理论上应 ≤1 级）\n");
-    if (packWorst > 1.5) { printf("    !! 打包不是恒等变换，检查 pack565Round\n"); return 1; }
-
-    // ---- 2c. 抖动质量 ----
-    // 逐像素误差 = 抖动噪声 + 565 本身的取整距离（后者最多 ±4.1 级，无法避免）。
-    // 所以看两个量：块内误差标准差（= 纯抖动噪声幅度，越小越不"花"）、
-    //             块均值误差（= 平均色准不准，应接近 0）。
-    double blkMax = 0, blkSum = 0, stdMax = 0, stdSum = 0;
+    // 缓存是「6 位 + 4×4 抖动」：逐像素误差含抖动噪声（≤ 一格 4.05 + 端点取整），
+    // 判据看 4×4 块均值（抖动零均值，块内均值应等于精确值）。
+    double qWorst = 0, blkMax = 0, blkSum = 0;
     long nb = 0;
-    for (int by = 0; by < RENDER_RES; by += 4) {
-      uint8_t rows[4][RENDER_RES * 3];
-      for (int dy = 0; dy < 4; dy++) renderSkyRow(rows[dy], by + dy, &fs);
-
-      for (int bx = 0; bx < RENDER_RES; bx += 4) {
+    for (int by = 0; by < GH; by += 4) {
+      uint8_t rows[4][SCREEN_MAX_DIM * 3];
+      for (int dy = 0; dy < 4; dy++) renderFrameRow(rows[dy], by + dy, &fs, g_sky);
+      for (int bx = 0; bx < GW; bx += 4) {
         for (int ch = 0; ch < 3; ch++) {
-          double e[16], s = 0;
+          double s = 0, e = 0;
           for (int k = 0; k < 16; k++) {
             const int x = bx + (k & 3), y = by + (k >> 2);
-            const uint16_t c = g_sky[y * RENDER_RES + x];
-            const int r5 = (c >> 11) & 0x1F, g6 = (c >> 5) & 0x3F, b5 = c & 0x1F;
-            const double got = (ch == 0) ? (double)((r5 << 3) | (r5 >> 2))
-                             : (ch == 1) ? (double)((g6 << 2) | (g6 >> 4))
-                                         : (double)((b5 << 3) | (b5 >> 2));
-            e[k] = got - rows[k >> 2][x * 3 + ch];
-            s += e[k];
+            const double got = rows[k >> 2][x * 3 + ch];
+            double ex[3];
+            skyColorExact(x, y, &fs, ex);
+            s += got;
+            e += ex[ch];
+            const double d = fabs(got - ex[ch]);
+            if (d > qWorst) qWorst = d;
           }
-          const double mean = s / 16.0;
-          double var = 0;
-          for (int k = 0; k < 16; k++) var += (e[k] - mean) * (e[k] - mean);
-          const double sd = sqrt(var / 16.0);
-          blkSum += fabs(mean);
-          stdSum += sd;
+          const double mean = fabs(s - e) / 16.0;
+          blkSum += mean;
           nb++;
-          if (fabs(mean) > blkMax) blkMax = fabs(mean);
-          if (sd > stdMax) stdMax = sd;
+          if (mean > blkMax) blkMax = mean;
         }
       }
     }
-    printf("[2c] 抖动质量：块均值误差最大 %.2f 级（平均色准），平均 %.3f 级\n", blkMax, blkSum / nb);
-    printf("     块内标准差最大 %.2f / 平均 %.2f 级（抖动噪声，565 下的理论量级 ~2.4）\n",
-           stdMax, stdSum / nb);
-    printf("     说明：565 的量化格 R/B 为 255/31≈8.23 级，抖动噪声属固有代价；\n");
-    printf("          不加抖动则会变成可见色带，所以这里只保证「平均色不失真」\n");
-    if (blkMax > 2.0) { printf("    !! 块均值偏大，抖动把平均色带偏了\n"); return 1; }
-    // 陡梯度区（太阳光晕边缘）块内理想值本身在变，误差分布更宽，峰值到 5 级属正常
-    if (stdMax > 5.5) { printf("    !! 抖动噪声异常偏大\n"); return 1; }
+    printf("[2b] 18 位缓存（6 位 + 4×4 抖动，无星无月帧 @%.0f）：\n", packSec);
+    printf("     逐像素最大 %.2f 级（含抖动噪声，允许 ≤ 一格 4.05+0.5），块均值最大 %.2f / 平均 %.3f 级\n",
+           qWorst, blkMax, blkSum / nb);
+    if (qWorst > 4.6) { printf("    !! 逐像素误差超出一格，检查 sky666 打包/解包\n"); return 1; }
+    if (blkMax > 1.6) { printf("    !! 块均值偏大：抖动没有零均值，平均色会失真\n"); return 1; }
   } else {
-    printf("[2b] 24 h 内没有无星无月的帧，跳过打包检查\n");
+    printf("[2b] 24 h 内没有无星无月的帧，跳过缓存量化检查\n");
   }
 
   // ---- 3. 状态量值域 ----
@@ -248,7 +219,7 @@ static int check(void) {
       if (!(st.baseIntensity >= 0.02f && st.baseIntensity <= 1.0f)) {
         printf("    !! 星强度越界 %.3f\n", st.baseIntensity); bad++;
       }
-      if (!(st.x > -20 && st.x < RENDER_RES + 20 && st.y > -20 && st.y < RENDER_RES + 20)) {
+      if (!(st.x > -20 && st.x < GW + 20 && st.y > -20 && st.y < GH + 20)) {
         printf("    !! 星位置越界 (%.1f, %.1f)\n", st.x, st.y); bad++;
       }
     }
@@ -261,13 +232,14 @@ static int check(void) {
 }
 
 // ===========================================================================
-static uint8_t g_img[RENDER_RES][RENDER_RES][3];
+// 放大导出用的整帧缓存：按 [y][x] 索引，两种方向都要够（边长上限 320）
+static uint8_t g_img[SCREEN_MAX_DIM][SCREEN_MAX_DIM][3];
 
 static int writeZoom(const char *path, int x0, int y0, int n, int scale) {
   if (x0 < 0) x0 = 0;
   if (y0 < 0) y0 = 0;
-  if (x0 + n > RENDER_RES) n = RENDER_RES - x0;
-  if (y0 + n > RENDER_RES) n = RENDER_RES - y0;
+  if (x0 + n > GW) n = GW - x0;
+  if (y0 + n > GH) n = GH - y0;
 
   FILE *f = fopen(path, "wb");
   if (!f) { printf("!! 无法写 %s\n", path); return 1; }
@@ -285,20 +257,20 @@ static int writeZoom(const char *path, int x0, int y0, int n, int scale) {
 // ===========================================================================
 static void dumpPixel(int x, int y, double sec) {
   static FrameState fs;
-  static uint16_t row565[RENDER_RES];
+  static uint8_t row666[SCREEN_MAX_DIM * 3];
   frameStateCompute(&fs, &g_cfg, jdOf(sec));
   renderSky(g_sky, &fs);
-  renderFrameRow565(row565, y, &fs, g_sky);
+  renderFrameRow666(row666, y, &fs, g_sky);
 
   double altDeg, azRad;
   projInversePixel(&g_cfg, x, y, &altDeg, &azRad);
   double rgb[3];
   skyColorExact(x, y, &fs, rgb);
 
-  const uint16_t c = row565[x];
+  const int r6 = row666[x * 3] >> 2, g6 = row666[x * 3 + 1] >> 2, b6 = row666[x * 3 + 2] >> 2;
   printf("pixel(%d,%d) alt=%.4f°  az=%.4f rad\n", x, y, altDeg, azRad);
   printf("  精确 rgb = (%.3f, %.3f, %.3f)\n", rgb[0], rgb[1], rgb[2]);
-  printf("  打包 565 = 0x%04X → r5=%d g6=%d b5=%d\n", c, (c >> 11) & 0x1F, (c >> 5) & 0x3F, c & 0x1F);
+  printf("  推屏 666 = r6=%d g6=%d b6=%d（6 位量化格 255/63≈4.05 级）\n", r6, g6, b6);
   printf("  a=(%.3f %.3f %.3f)  b=(%.4f %.4f %.4f)  z=(%.1f %.1f %.1f)  sunAlt=%.3f sunAz=%.3f\n",
          fs.aR, fs.aG, fs.aB, fs.bR, fs.bG, fs.bB, fs.zR, fs.zG, fs.zB, fs.sunAlt, fs.sunAz);
   printf("  sun=(%.2f, %.2f) glowR2=%.1f diskR2=%.2f diskVis=%.3f glowK=%.3f sunPossible=%d\n",
@@ -311,21 +283,20 @@ static void dumpBlock(int bx, int by, double sec) {
   frameStateCompute(&fs, &g_cfg, jdOf(sec));
   renderSky(g_sky, &fs);
 
-  printf("块(%d,%d) sec=%.0f  星=%d 月可见=%d  每格：精确(R,G,B) → 565(r5,g6,b5) → 反解(R,G,B)\n",
+  printf("块(%d,%d) sec=%.0f  星=%d 月可见=%d  每格：精确(R,G,B) → 666(r6,g6,b6) → 反解(R,G,B)\n",
          bx, by, sec, fs.nStars, fs.moon.visible ? 1 : 0);
   double sumG[3] = {0, 0, 0}, sumE[3] = {0, 0, 0};
   for (int dy = 0; dy < 4; dy++) {
-    uint16_t row565[RENDER_RES];
-    renderFrameRow565(row565, by + dy, &fs, g_sky);
+    uint8_t row666[SCREEN_MAX_DIM * 3];
+    renderFrameRow666(row666, by + dy, &fs, g_sky);
     for (int dx = 0; dx < 4; dx++) {
       const int x = bx + dx, y = by + dy;
-      const uint16_t c = row565[x];
-      const int r5 = (c >> 11) & 0x1F, g6 = (c >> 5) & 0x3F, b5 = c & 0x1F;
-      const int got[3] = { (r5 << 3) | (r5 >> 2), (g6 << 2) | (g6 >> 4), (b5 << 3) | (b5 >> 2) };
+      const int r6 = row666[x * 3] >> 2, g6 = row666[x * 3 + 1] >> 2, b6 = row666[x * 3 + 2] >> 2;
+      const int got[3] = { (r6 * 255 + 31) / 63, (g6 * 255 + 31) / 63, (b6 * 255 + 31) / 63 };
       double rgb[3];
       skyColorExact(x, y, &fs, rgb);
       printf("  %3d,%3d: (%.1f,%.1f,%.1f) → (%2d,%2d,%2d) → (%3d,%3d,%3d)  Δ=(%+.1f,%+.1f,%+.1f)\n",
-             x, y, rgb[0], rgb[1], rgb[2], r5, g6, b5, got[0], got[1], got[2],
+             x, y, rgb[0], rgb[1], rgb[2], r6, g6, b6, got[0], got[1], got[2],
              got[0] - rgb[0], got[1] - rgb[1], got[2] - rgb[2]);
       for (int ch = 0; ch < 3; ch++) { sumG[ch] += got[ch]; sumE[ch] += rgb[ch]; }
     }
@@ -348,7 +319,7 @@ static void dumpSkyMap(double sec) {
     const SkyPos pos = equatorialToAltAz(STARS[s][0], STARS[s][1], g_cfg.lat, g_cfg.lon, jd);
     const SkyPt pt = projectSky(&g_cfg, pos.az, pos.alt);
     const bool up = pos.alt >= 0;
-    const bool in = pt.x >= 0 && pt.x <= RENDER_RES && pt.y >= 0 && pt.y <= RENDER_RES;
+    const bool in = pt.x >= 0 && pt.x <= GW && pt.y >= 0 && pt.y <= GH;
     bool drawn = false;
     for (int k = 0; k < fs.nStars; k++) {
       if (fabs(fs.stars[k].x - (float)pt.x) < 1e-3 && fabs(fs.stars[k].y - (float)pt.y) < 1e-3) { drawn = true; break; }
@@ -413,17 +384,17 @@ static void dumpStars(double sec) {
 // ===========================================================================
 static int dumpPpm(double sec, const char *path) {
   static FrameState fs;
-  static uint8_t row[RENDER_RES * 3];
+  static uint8_t row[SCREEN_MAX_DIM * 3];
 
   buildSky(&fs, sec);
   frameTwinkle(&fs, 3.7, g_cfg.twinkle);
 
   FILE *f = fopen(path, "wb");
   if (!f) { printf("!! 无法写 %s\n", path); return 1; }
-  fprintf(f, "P6\n%d %d\n255\n", RENDER_RES, RENDER_RES);
-  for (int y = 0; y < RENDER_RES; y++) {
+  fprintf(f, "P6\n%d %d\n255\n", GW, GH);
+  for (int y = 0; y < GH; y++) {
     renderFrameRow(row, y, &fs, g_sky);
-    fwrite(row, 1, RENDER_RES * 3, f);
+    fwrite(row, 1, GW * 3, f);
   }
   fclose(f);
 
@@ -437,14 +408,14 @@ static int dumpPpm(double sec, const char *path) {
 // 月亮局部放大导出（最近邻）：用来看相位形状 / 月海 / 环形山
 static int dumpZoom(double sec, int half, int scale, const char *path) {
   static FrameState fs;
-  static uint8_t row[RENDER_RES * 3];
+  static uint8_t row[SCREEN_MAX_DIM * 3];
   buildSky(&fs, sec);
   if (!fs.moon.visible) { printf("该时刻月亮不可见（vis=0）\n"); return 1; }
   frameTwinkle(&fs, 3.7, g_cfg.twinkle);
 
-  for (int y = 0; y < RENDER_RES; y++) {
+  for (int y = 0; y < GH; y++) {
     renderFrameRow(row, y, &fs, g_sky);
-    memcpy(g_img[y], row, RENDER_RES * 3);
+    memcpy(g_img[y], row, GW * 3);
   }
 
   printf("月亮 @(%.2f,%.2f) r=%.2f illum=%.2f %s detail=%d vis=%.2f\n",
@@ -460,7 +431,7 @@ static int dumpZoom(double sec, int half, int scale, const char *path) {
 // 月相形状单元测试：合成 illum / waxing / r，只画圆盘（黑底）
 static int dumpMoonShape(double illum, int waxing, double r, int scale, const char *path) {
   static FrameState fs;
-  static uint8_t row[RENDER_RES * 3];
+  static uint8_t row[SCREEN_MAX_DIM * 3];
 
   memset(&fs, 0, sizeof(fs));
   projBegin(&g_cfg, &fs.proj);          // 天空算式要有效常量（此处配色全 0，天空为纯黑）
@@ -479,9 +450,9 @@ static int dumpMoonShape(double illum, int waxing, double r, int scale, const ch
   fs.nStars = 0;
 
   renderSky(g_sky, &fs);                // 背景 = 黑天空 + 月亮
-  for (int y = 0; y < RENDER_RES; y++) {
+  for (int y = 0; y < GH; y++) {
     renderFrameRow(row, y, &fs, g_sky);
-    memcpy(g_img[y], row, RENDER_RES * 3);
+    memcpy(g_img[y], row, GW * 3);
   }
   printf("合成月亮：illum=%.2f %s r=%.1f detail=%d\n",
          illum, waxing ? "waxing" : "waning", r, fs.moon.detail ? 1 : 0);
@@ -492,16 +463,16 @@ static int dumpMoonShape(double illum, int waxing, double r, int scale, const ch
 // 天空层纯 888 导出（不含抖动 / 打包 / 星月）：供与 sunset.html 参考实现逐像素比对
 static int dumpSky888(double sec, const char *path) {
   static FrameState fs;
-  static uint8_t row[RENDER_RES * 3];
+  static uint8_t row[SCREEN_MAX_DIM * 3];
 
   frameStateCompute(&fs, &g_cfg, jdOf(sec));
 
   FILE *f = fopen(path, "wb");
   if (!f) { printf("!! 无法写 %s\n", path); return 1; }
-  fprintf(f, "P6\n%d %d\n255\n", RENDER_RES, RENDER_RES);
-  for (int y = 0; y < RENDER_RES; y++) {
+  fprintf(f, "P6\n%d %d\n255\n", GW, GH);
+  for (int y = 0; y < GH; y++) {
     renderSkyRow(row, y, &fs);
-    fwrite(row, 1, RENDER_RES * 3, f);
+    fwrite(row, 1, GW * 3, f);
   }
   fclose(f);
   printf("%s: sky888 sun alt=%.4f az=%.4f | camAz=%.1f fov=%.1f baseAlt=%.1f\n",
@@ -513,13 +484,11 @@ static int dumpSky888(double sec, const char *path) {
 int main(int argc, char **argv) {
   astroInit();
   skyConfigDefaults(&g_cfg);
-  skyConfigClamp(&g_cfg);
-  renderInit(&g_cfg);
 
   const char *mode = argc > 1 ? argv[1] : "check";
 
-  // 可选覆盖：形如 az=270 / fov=60 / baseAlt=10 / lat=39.9 / lon=116.4 / twinkle=0.5，
-  // 放在位置参数之后（不占用位置参数的下标）
+  // 可选覆盖：形如 az=270 / fov=60 / baseAlt=10 / lat=39.9 / lon=116.4 /
+  // twinkle=0.5 / rot=0..3，放在位置参数之后（不占用位置参数的下标）
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "az=", 3) == 0)           g_cfg.camAz   = atof(argv[i] + 3);
     else if (strncmp(argv[i], "fov=", 4) == 0)     g_cfg.fov     = atof(argv[i] + 4);
@@ -527,8 +496,10 @@ int main(int argc, char **argv) {
     else if (strncmp(argv[i], "lat=", 4) == 0)     g_cfg.lat     = atof(argv[i] + 4);
     else if (strncmp(argv[i], "lon=", 4) == 0)     g_cfg.lon     = atof(argv[i] + 4);
     else if (strncmp(argv[i], "twinkle=", 8) == 0) g_cfg.twinkle = atof(argv[i] + 8);
+    else if (strncmp(argv[i], "rot=", 4) == 0)     g_cfg.rot     = atoi(argv[i] + 4);
   }
-  skyConfigClamp(&g_cfg);
+  useCfg();                             // 约束参数 + 定画布尺寸
+  renderInit(&g_cfg);
 
   if (strcmp(mode, "check") == 0) return check();
   if (strcmp(mode, "pixel") == 0 && argc > 4) { dumpPixel(atoi(argv[2]), atoi(argv[3]), atof(argv[4])); return 0; }

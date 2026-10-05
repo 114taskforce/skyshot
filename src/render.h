@@ -7,7 +7,9 @@
 //               （StarDraw 列表），renderStarRow() 只负责把它叠加到某一行上
 //
 //  每帧只需：取缓存背景行 → 叠星 → 推屏（见 renderFrameRow565）。
-//  HTML 的画布分辨率与目标屏一致（SZ = 240），故取 sc = 1、dpr = 1。
+//  HTML 的画布为 240×240（SZ = 240）；本工程为横屏 320×240：垂直方向与
+//  HTML/旧版 240×240 的尺度完全一致（projK 只与高度绑定），水平方向多出
+//  的 80 列按同一等角立体投影真实渲染更宽的方位角，不拉伸、不复制像素。
 // ===========================================================================
 #pragma once
 
@@ -16,7 +18,9 @@
 #include "proj.h"
 #include "settings.h"
 
-#define RENDER_RES 240
+// 画布尺寸随 SkyConfig::rot 在运行时确定（FrameState 的 w / h）；
+// 缓冲按面板最大尺寸分配一份即可（两种方向像素总数相同）
+#define RENDER_MAX_PX SCREEN_MAX_PX
 
 // 单颗星：位置 / 大小 / 颜色 / 闪烁量（每帧由 frameTwinkle 刷新后半段）
 struct StarDraw {
@@ -45,6 +49,7 @@ struct MoonDraw {
 // 一次刷新（默认 60 s）算好的整帧状态
 struct FrameState {
   double sunAlt, sunAz;
+  int w, h;                                  // 画布尺寸（由 rot 决定，运行时可变）
   // 天空逐像素计算用的每帧常量
   ProjCtx proj;                              // 反投影常量
   float   azCosC, azSinS;                    // cos/sin(camAz − sunAz)
@@ -72,8 +77,11 @@ void frameStateCompute(FrameState *fs, const SkyConfig *cfg, double jd);
 // 按当前时间刷新星星的闪烁量（每帧调用）
 void frameTwinkle(FrameState *fs, double tSec, double twinkleAmt);
 
-// ① 背景层（天空色 + 太阳 + 月亮）：整帧 → RGB565 缓存（含 4×4 抖动）
-void renderSky(uint16_t *sky565, const FrameState *fs);
+// ① 背景层（天空色 + 太阳 + 月亮）→ RGB666 缓存
+// 屏幕是 18 位色（ST7789 COLMOD=0x66），所以背景按 6-6-6 存、不抖动：
+// 每像素 18 位、按位打包（4 像素 9 字节），整帧约 169 KB（两种方向像素数相同）
+#define RENDER_SKY_BYTES(px) (((px) * 18 + 7) / 8 + 8)
+void renderSky(uint8_t *sky666, const FrameState *fs);
 
 // 背景层单行 → RGB888（天空色 + 太阳，不含月亮；与 renderSky 同一套公式，验证用）
 void renderSkyRow(uint8_t *rgb, int y, const FrameState *fs);
@@ -82,8 +90,8 @@ void renderSkyRow(uint8_t *rgb, int y, const FrameState *fs);
 void renderStarRow(uint8_t *rgb, int y, const FrameState *fs);
 void renderMoonRow(uint8_t *rgb, int y, const FrameState *fs);
 
-// 缓存背景行 → 叠星 → 打包 RGB565（设备推屏直接用）
-void renderFrameRow565(uint16_t *row565, int y, const FrameState *fs, const uint16_t *sky565);
+// 缓存背景行 → 叠星 → 输出 18 位行（每像素 3 字节，设备推屏直接用；无抖动）
+void renderFrameRow666(uint8_t *row666, int y, const FrameState *fs, const uint8_t *sky666);
 
 // 同上，但输出 RGB888（放大看图 / 验证用）
-void renderFrameRow(uint8_t *rgb, int y, const FrameState *fs, const uint16_t *sky565);
+void renderFrameRow(uint8_t *rgb, int y, const FrameState *fs, const uint8_t *sky666);

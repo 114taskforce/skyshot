@@ -16,7 +16,7 @@
 #endif
 
 #ifndef CFG_WIFI_SSID
-#define CFG_WIFI_SSID   "你的WiFi名称"
+#define CFG_WIFI_SSID   ""
 #endif
 #ifndef CFG_WIFI_PASS
 #define CFG_WIFI_PASS   "你的WiFi密码"
@@ -50,19 +50,28 @@
 #define CFG_REFRESH_SEC 60            // 天体位置重算周期（秒）
 
 // ===========================================================================
-//  微雪 ESP32-C6-LCD-1.3 引脚
+//  引脚 —— 本工程仅支持微雪 ESP32-S3-LCD-2.8（ST7789 320×240 横屏）
 // ===========================================================================
-#define PIN_LCD_MISO  5
-#define PIN_LCD_MOSI  6
-#define PIN_LCD_SCLK  7
-#define PIN_LCD_CS    14
-#define PIN_LCD_DC    15
-#define PIN_LCD_RST   21
-#define PIN_BK_LIGHT  22
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+// ST7789 原生 240×320，SPI 单写（无 MISO 引出）
+#define PIN_LCD_MISO  -1            // 屏幕 SPI 无 MISO（单写）
+#define PIN_LCD_MOSI  45
+#define PIN_LCD_SCLK  40
+#define PIN_LCD_CS    42
+#define PIN_LCD_DC    41
+#define PIN_LCD_RST   39
+#define PIN_BK_LIGHT  5
 #define LCD_SPI_HZ    80000000
 
 // BOOT 按键（按下接地）。短按 = 重新联网校时；长按 2 秒 = 开配置热点
-#define PIN_BTN_BOOT  9
+#define PIN_BTN_BOOT  0
 
-// 若实机画面上下/左右颠倒，把这里改成 0..3 逐个试
+// 屏幕方向（全工程唯一开关：画布尺寸与投影都跟它走，见 include/settings.h）
+//   1 / 3 = 横屏 320×240（宽幅看日落）
+//   0 / 2 = 竖屏 240×320（立式摆放：垂直看到更多天空，水平视野与横屏一致）
+// fov 语义 = 短边角宽（横屏是高度、竖屏是宽度）
 #define LCD_ROTATION  0
+
+#elif defined(ARDUINO)
+#error "本工程仅支持 ESP32-S3（微雪 ESP32-S3-LCD-2.8，board=esp32-s3-devkitc-1），已移除 ESP32-C6 支持"
+#endif

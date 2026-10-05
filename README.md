@@ -1,6 +1,6 @@
 # skyshot · 天空快照
 
-把「此刻头顶的天空」收进一块 1.3 寸的方屏里：ESP32-C6 + ST7789 240×240，
+把「此刻头顶的天空」收进一块 **320×240 横屏**：微雪 ESP32-S3-LCD-2.8 + ST7789，
 按真实天文算法实时渲染**你所在位置当前**的太阳、月亮和亮星。
 
 | 正午 | 日落 | 夜晚 |
@@ -23,8 +23,12 @@
 
 ## 硬件
 
-- 微雪 **ESP32-C6-LCD-1.3**（ESP32-C6 + ST7789 240×240 IPS，SPI 接口）
-- 引脚与屏幕旋转见 [include/config.h](include/config.h)；BOOT 键为 GPIO9
+- 微雪 **ESP32-S3-LCD-2.8**：ESP32-S3 + ST7789 **320×240 横屏**（原生 240×320 旋转 90°），SPI：SCLK=40 MOSI=45 CS=42 DC=41 RST=39 BL=5，BOOT 键 GPIO0
+- 引脚与屏幕旋转见 [include/config.h](include/config.h)
+
+横屏**不是**把 240×240 直接拉伸铺满：投影缩放只与屏幕**高度**绑定，320 宽的 80 列按同一
+等角立体投影真实渲染更宽的方位角。垂直方向与早期 240×240 版完全同尺度，星点/太阳/月亮
+始终是正圆，不压扁。
 
 ## 快速开始
 
@@ -43,15 +47,10 @@
 
 ### 国内网络提示
 
-本工程用 **pioarduino 分支**的 espressif32 平台（官方 `platformio/espressif32` 6.x 不带 ESP32-C6 的 Arduino 支持）。
-全新环境请先装平台，或把 `platformio.ini` 里的 `platform` 改成那行 git 地址：
-
-```bash
-pio pkg install -g -p "https://github.com/pioarduino/platform-espressif32.git"
-```
-
-首次编译要从 GitHub 下 ~670 MB 的 RISC-V 工具链，实测常被墙。用 Espressif 官方镜像可以跑满带宽
-（ESP-IDF 的安装器认这个环境变量，会把 `github.com/...` 改写成 `dl.espressif.com/github_assets/...`）：
+本工程用官方 `platformio/espressif32` 平台（6.x，带 ESP32-S3 的 Arduino 支持）。
+首次编译工具链（Xtensa）要从 GitHub 下载，实测常被墙。
+用 Espressif 官方镜像可以跑满带宽（ESP-IDF 的安装器认这个环境变量，会把 `github.com/...`
+改写成 `dl.espressif.com/github_assets/...`）：
 
 ```powershell
 $env:IDF_GITHUB_ASSETS = "dl.espressif.com/github_assets"
@@ -86,10 +85,10 @@ $env:PLATFORMIO_CACHE_DIR = "C:\pio-cache"
 | `CFG_TIME_RESYNC_SEC` | 定时重新校时间隔，`0` = 校一次后不再联网 |
 | `CFG_LAT` / `CFG_LON` | 纬度（北正）/ 经度（东正） |
 | `CFG_CAM_AZ` | 屏幕正对方向：方位角，正北 0°、顺时针（默认 **270° = 正西**，看日落与金色时刻；90° 看日出） |
-| `CFG_FOV` | 视场角（10–120°） |
+| `CFG_FOV` | 视场角（10–120°）= **垂直视场**，绑定屏幕短边 240 px，纵向与旧版 240×240 一致 |
 | `CFG_BASE_ALT` | 底边高度角（上限受视场角限制，保证视线中心不越过天顶） |
 | `CFG_TWINKLE` | 闪烁强度 0–1 |
-| `PIN_BTN_BOOT` | BOOT 按键引脚（默认 GPIO9） |
+| `PIN_BTN_BOOT` | BOOT 按键引脚（默认 GPIO0） |
 | `CFG_FPS` / `CFG_REFRESH_SEC` | 闪烁刷新率 / 背景重建周期 |
 
 ## 代码结构
@@ -126,7 +125,7 @@ sunset.html      原始单文件 HTML 版（本项目是它的嵌入式移植）
 - 天空每分钟才变一次，所以整帧缓存；每分钟只算一次全屏（约 0.1 s），其余时间零开销
 - 月亮不闪烁 → 烘进背景层，不参与逐帧合成
 - 缓存时用 4×4 有序抖动抗色带，推屏时用普通取整（对已抖动的缓存是恒等变换，避免二次抖动整体偏色）
-- 省下 112.5 KB 的反投影表（改成逐像素现算）用来放 115 KB 的背景缓存，静态 RAM 反而少 1 KB
+- 省下 112.5 KB 的反投影表（改成逐像素现算）用来放 154 KB 的背景缓存（320×240 × 2 字节）
 
 ## 验证工具（PC 端）
 

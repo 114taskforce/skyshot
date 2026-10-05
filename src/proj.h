@@ -11,12 +11,13 @@
 #include <stdint.h>
 #include "settings.h"
 
-#define PROJ_RES 240
-
+// 画布尺寸由 SkyConfig::rot 决定（见 settings.h 的 skyScreenSize）：
+// 0/2 竖屏 240×320、1/3 横屏 320×240 —— 投影中心随之在运行时确定
 struct SkyPt { double x, y, t; };   // t = 与投影中心的角距离（弧度）
 
 // 逐像素反投影的预计算常量（每次重建天空前用 projBegin 算好）
-struct ProjCtx { float sa0, ca0, k; };
+// cx / cy = 画面中心像素坐标（旋转后可换向）
+struct ProjCtx { float sa0, ca0, k, cx, cy; };
 
 // 单像素方向：sinAlt + 「相机坐标系方位角 θ」的 cos/sin。
 // 真实方位 az = camAz + θ，故 cos(az − X) = ct·cos(camAz − X) − st·sin(camAz − X)

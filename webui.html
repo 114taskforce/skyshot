@@ -363,6 +363,19 @@
       <input type="range" id="twinkle" min="0" max="100" step="1">
       <span class="val" id="twinklev">55%</span>
     </div>
+    <div class="row">
+      <label>屏幕方向</label>
+      <div class="chips" id="rotChips" style="margin-top:0; flex:1">
+        <button data-rot="0">竖屏</button>
+        <button data-rot="1">横屏</button>
+        <button data-rot="2">竖屏 180°</button>
+        <button data-rot="3">横屏 270°</button>
+      </div>
+    </div>
+    <div class="hint">
+      竖屏 240×320、横屏 320×240；视场角绑定短边，长边多出的方向看到更多天空。
+      180° / 270° 是给倒装摆放用的，画面内容一样、只是整屏转了半圈。保存后生效。
+    </div>
   </section>
 
   <!-- ④ 时间 -->
@@ -443,7 +456,7 @@ const dirName = a => DIR8[Math.round(((a % 360) + 360) % 360 / 45) % 8];
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ---- 表单 ⇄ 参数 ----
-let cfg = { lat: 39.9, lon: 116.4, camAz: 270, baseAlt: 0, fov: 68, twinkle: .55,
+let cfg = { lat: 39.9, lon: 116.4, camAz: 270, baseAlt: 0, fov: 68, twinkle: .55, rot: 1,
             ssid: '', url: '', manual: false, epoch: 0, tz: 8 };
 let state = null;
 
@@ -499,6 +512,7 @@ function fillForm(fromState) {
   $('url').value  = cfg.url || '';
   $('pass').value = '';              // 密码不回显
   $('tz').value = cfg.tz;
+  rotSel(cfg.rot);
   if (cfg.epoch > 1e9) $('dt').value = fmtLocalInput(cfg.epoch, cfg.tz);
   setTimeMode(!!cfg.manual);
   azSync(cfg.camAz, false);
@@ -533,18 +547,51 @@ function readForm() {
   cfg.camAz = ((cfg.camAz % 360) + 360) % 360;
   $('azname').textContent = dirName(cfg.camAz);
   cfg.fov = clamp(cfg.fov, 10, 120);
-  $('baseAlt').max = (90 - cfg.fov / 2).toFixed(0);
-  if (parseFloat($('baseAlt').value) > parseFloat($('baseAlt').max)) {
-    $('baseAlt').value = $('baseAlt').max;
-    $('baseAltv').textContent = $('baseAlt').max + '°';
+  const altMax = 90 - halfV();                       // 与固件 skyConfigClamp 一致
+  $('baseAlt').max = altMax.toFixed(0);
+  if (parseFloat($('baseAlt').value) > altMax) {
+    $('baseAlt').value = altMax.toFixed(0);
+    $('baseAltv').textContent = $('baseAlt').value + '°';
   }
-  cfg.baseAlt = clamp(cfg.baseAlt, 0, 90 - cfg.fov / 2);
+  cfg.baseAlt = clamp(cfg.baseAlt, 0, altMax);
   return cfg;
 }
 
+// ---- 预览用的天体位置：把表单里的时间 / 地点发给设备现算 ----
+// 用的是固件里同一套天文代码（不在网页里重写一遍），改时间/地点立刻能看到
+// 太阳月亮动到哪；设备认得这套参数才会带 preview:1 回来，认不出就退回跟随设备状态
+let preview = null, prevTimer = 0;
+
+function previewTime() {
+  if (cfg.manual && cfg.epoch > 1e9) return cfg.epoch;          // 手动：表单里那一刻
+  return state && state.now > 1e9 ? state.now : Math.floor(Date.now() / 1000);
+}
+
+function schedulePreview() {
+  clearTimeout(prevTimer);
+  prevTimer = setTimeout(async () => {
+    const t = previewTime();
+    if (!(t > 1e9)) return;
+    try {
+      const q = new URLSearchParams({ lat: cfg.lat, lon: cfg.lon, t: Math.round(t) });
+      const r = await fetch('/api/state?' + q.toString());
+      const j = await r.json();
+      preview = j.preview ? j : null;
+    } catch (e) { /* 设备没响应：保留上一次预览 */ }
+    drawPreview();
+  }, 150);
+}
+
 // ---- 投影（与固件 proj.cpp 同一套公式，用来实时预览）----
-const projCenterAlt = () => clamp(cfg.baseAlt + cfg.fov / 2, 0, 90);
-const projK = () => 120 / (2 * Math.tan(cfg.fov / 4 * RAD));
+// 画布尺寸 = 设备屏幕（/api/state 的 scrW/scrH；未取到前按横屏 320×240）。
+// fov 绑定屏幕短边（横屏是高度、竖屏是宽度），长边多出的部分按同一投影
+// 多渲染天区、不拉伸 —— 与固件 settings.h / proj.cpp 完全一致。
+let SW = 320, SH = 240;
+const projK = () => Math.min(SW, SH) / 2 / (2 * Math.tan(cfg.fov / 4 * RAD));
+const halfAng = px => 2 * Math.atan(px / 2 / (2 * projK())) / RAD;   // 该边到中心的半张角（度）
+const halfH = () => halfAng(SW);                                     // 水平半视场
+const halfV = () => halfAng(SH);                                     // 垂直半视场
+const projCenterAlt = () => clamp(cfg.baseAlt + halfV(), 0, 90);
 function projectSky(az, alt) {
   const a0 = projCenterAlt() * RAD, sa0 = Math.sin(a0), ca0 = Math.cos(a0);
   const a = alt * RAD, sa = Math.sin(a), ca = Math.cos(a);
@@ -555,19 +602,65 @@ function projectSky(az, alt) {
   const sinT = Math.hypot(u, v);
   const rho = 2 * sinT / Math.max(1 + w, 1e-9) * projK();
   const inv = sinT > 1e-12 ? rho / sinT : 0;
-  return { x: 120 + u * inv, y: 120 - v * inv };
+  return { x: SW / 2 + u * inv, y: SH / 2 - v * inv };
 }
 const wrap180 = d => ((d + 540) % 360) - 180;
+
+// 画面边缘在 (高度,方位) 空间里是弯的（投影中心不在天顶），所以「在不在画面里」
+// 一律用投影后的像素坐标判断；下面两个反解只用来算提示里的度数：
+//   azAtX：沿固定高度角，反解「x = 目标像素」的方位角（相对 camAz）
+//   altAtY：沿固定方位角差，反解「y = 目标像素」的高度角
+function azAtX(alt, targetX) {
+  let lo = -180, hi = 180;                       // x 随方位角差单调，二分足够
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2;
+    if (projectSky(cfg.camAz + mid, alt).x < targetX) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+function altAtY(dAz, targetY) {
+  let lo = -90, hi = 90;                         // y 随高度角单调递减
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2;
+    if (projectSky(cfg.camAz + dAz, mid).y > targetY) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+// 屏幕方向 0/2 = 竖屏 240×320，1/3 = 横屏 320×240（与固件 settings.h 一致）
+const screenSizeForRot = rot => (rot & 1) ? { w: 320, h: 240 } : { w: 240, h: 320 };
+
+// 按当前方向设置预览画布（CSS 显示按最长边 132px 等比缩放）
+function applyScreenSize(rot) {
+  const s = screenSizeForRot(rot === undefined ? cfg.rot : rot);
+  SW = s.w; SH = s.h;
+  const cv = $('pv');
+  cv.width = SW; cv.height = SH;
+  if (SH >= SW) { cv.style.width = '99px';  cv.style.height = '132px'; }
+  else          { cv.style.width = '132px'; cv.style.height = '99px'; }
+  drawPreview();
+}
+
+// 只更新方向按钮的选中态（不重画预览）
+function rotSel(rot) {
+  cfg.rot = ((rot % 4) + 4) % 4;
+  const box = $('rotChips');
+  if (box) box.querySelectorAll('[data-rot]').forEach(b =>
+    b.classList.toggle('sel', Number(b.dataset.rot) === cfg.rot));
+}
 
 // 预览配色：松绿深底 + 中央十字 + 奶油太阳 / 浅月（starchart 色系）
 function drawPreview() {
   const c = $('pv').getContext('2d');
-  c.fillStyle = '#06322f'; c.fillRect(0, 0, 240, 240);
+  c.fillStyle = '#06322f'; c.fillRect(0, 0, SW, SH);
   c.strokeStyle = '#1f5a55'; c.lineWidth = 1;
-  c.beginPath(); c.moveTo(120, 0); c.lineTo(120, 240); c.moveTo(0, 120); c.lineTo(240, 120); c.stroke();
+  c.beginPath();
+  c.moveTo(SW / 2, 0); c.lineTo(SW / 2, SH);
+  c.moveTo(0, SH / 2); c.lineTo(SW, SH / 2);
+  c.stroke();
 
   const drawBody = (x, y, r, fill, glow) => {
-    const inside = x > -r && x < 240 + r && y > -r && y < 240 + r;
+    const inside = x > -r && x < SW + r && y > -r && y < SH + r;
     if (inside) {
       if (glow) {
         const g = c.createRadialGradient(x, y, 0, x, y, r * 5);
@@ -576,33 +669,41 @@ function drawPreview() {
       }
       c.beginPath(); c.arc(x, y, r, 0, 7); c.fillStyle = fill; c.fill();
     } else {
-      const cx = clamp(x, 7, 233), cy = clamp(y, 7, 233);
-      c.save(); c.translate(cx, cy); c.rotate(Math.atan2(y - 120, x - 120));
+      const cx = clamp(x, 7, SW - 7), cy = clamp(y, 7, SH - 7);
+      c.save(); c.translate(cx, cy); c.rotate(Math.atan2(y - SH / 2, x - SW / 2));
       c.beginPath(); c.moveTo(7, 0); c.lineTo(-4, -4.5); c.lineTo(-4, 4.5); c.closePath();
       c.fillStyle = fill; c.globalAlpha = .85; c.fill(); c.restore();
     }
     return inside;
   };
 
-  if (state) {
-    const sp = projectSky(state.sunAz, state.sunAlt);
+  const pv = preview || state;                     // 预览优先，其次跟随设备状态
+  if (pv) {
+    const sp = projectSky(pv.sunAz, pv.sunAlt);
     drawBody(sp.x, sp.y, 4, '#fbe9d1', 'rgba(208,115,47,.4)');
-    if (state.moonAlt > -1) {
-      const mp = projectSky(state.moonAz, state.moonAlt);
+    if (pv.moonAlt > -1) {
+      const mp = projectSky(pv.moonAz, pv.moonAlt);
       drawBody(mp.x, mp.y, 3.6, 'rgba(222,232,225,.95)', null);
     }
 
-    const dAz = wrap180(state.sunAz - cfg.camAz);
-    const lowT = cfg.baseAlt, upT = cfg.baseAlt + cfg.fov;
-    $('sunhint').innerHTML = dAz > cfg.fov / 2  ? `太阳在画面<b>右</b>侧 ${Math.round(dAz - cfg.fov / 2)}°`
-      : dAz < -cfg.fov / 2 ? `太阳在画面<b>左</b>侧 ${Math.round(-dAz - cfg.fov / 2)}°`
-      : state.sunAlt > upT ? `太阳在画面上方 ${Math.round(state.sunAlt - upT)}°`
-      : state.sunAlt < lowT ? `太阳在画面下方 ${Math.round(lowT - state.sunAlt)}°`
-      : `太阳<b>在画面里</b> ✓（高度 ${state.sunAlt.toFixed(0)}°，方位 ${state.sunAz.toFixed(0)}°）`;
+    const dAz = wrap180(pv.sunAz - cfg.camAz);
+    // 「在不在画面里」用投影后的像素坐标判断（画面边缘是弯的，拿角度差比会误判，
+    // 横屏尤其明显）；度数只在算提示时反解，天体半径量级内算仍可见
+    const m = 6;
+    const outL = sp.x < -m, outR = sp.x > SW + m;
+    const outU = sp.y < -m, outD = sp.y > SH + m;
+    let hint;
+    if (outL)      hint = `太阳在画面<b>左</b>侧 ${Math.round(azAtX(pv.sunAlt, 0) - dAz)}°`;
+    else if (outR) hint = `太阳在画面<b>右</b>侧 ${Math.round(dAz - azAtX(pv.sunAlt, SW))}°`;
+    else if (outU) hint = `太阳在画面<b>上</b>方 ${Math.round(pv.sunAlt - altAtY(dAz, 0))}°`;
+    else if (outD) hint = `太阳在画面<b>下</b>方 ${Math.round(altAtY(dAz, SH) - pv.sunAlt)}°`;
+    else           hint = `太阳<b>在画面里</b> ✓（高度 ${pv.sunAlt.toFixed(0)}°，方位 ${pv.sunAz.toFixed(0)}°）`;
+    if ((outL || outR) && (outU || outD)) hint += '，高度也要调';
+    $('sunhint').innerHTML = hint;
 
-    $('moonhint').innerHTML = state.moonAlt <= -1
+    $('moonhint').innerHTML = pv.moonAlt <= -1
       ? '月亮在地平线下'
-      : `月亮 ${(state.moonIllum * 100).toFixed(0)}% ${state.moonWaxing ? '（渐盈）' : '（渐亏）'}，高度 ${state.moonAlt.toFixed(0)}°`;
+      : `月亮 ${(pv.moonIllum * 100).toFixed(0)}% ${pv.moonWaxing ? '（渐盈）' : '（渐亏）'}，高度 ${pv.moonAlt.toFixed(0)}°`;
   }
 }
 
@@ -879,17 +980,20 @@ async function save() {
   readForm();
   const q = new URLSearchParams({
     lat: cfg.lat, lon: cfg.lon, camAz: cfg.camAz, baseAlt: cfg.baseAlt,
-    fov: cfg.fov, twinkle: cfg.twinkle, ssid: cfg.ssid, pass: cfg.pass, url: cfg.url,
+    fov: cfg.fov, twinkle: cfg.twinkle, rot: cfg.rot,
+    ssid: cfg.ssid, pass: cfg.pass, url: cfg.url,
     manual: cfg.manual ? 1 : 0, epoch: cfg.epoch, tz: cfg.tz
   });
   try {
     const r = await fetch('/api/save?' + q.toString());
     const j = await r.json();
+    preview = null;                     // 保存后回到"跟随设备真实状态"
+    drawPreview();
     toast(j.ok ? '已保存，热点即将关闭，设备开始按新配置运行 ✓' : '保存失败');
   } catch (e) { toast('保存失败：连不上设备'); }
 }
 async function reset() {
-  try { await fetch('/api/reset'); toast('已恢复默认值'); setTimeout(poll, 300); }
+  try { await fetch('/api/reset'); preview = null; toast('已恢复默认值'); setTimeout(poll, 300); }
   catch (e) { toast('恢复失败：连不上设备'); }
 }
 
@@ -904,10 +1008,12 @@ async function poll() {
     $('st-moon').textContent = `高度 ${state.moonAlt.toFixed(0)}° · 照亮 ${(state.moonIllum * 100).toFixed(0)}%`;
     $('st-run').textContent  = `可见恒星 ${state.stars} 颗 · 可用内存 ${(state.heap / 1024).toFixed(0)} KB · 时间${state.manual ? '手动' : (state.synced ? '已联网校时' : '未校时')}`;
     if (!poll._done) {                 // 首次拿到设备配置后填表单
-      fillForm(state);
+      fillForm(state);                 // （含 cfg.rot，方向按钮与预览尺寸随之确定）
+      applyScreenSize();
       poll._done = true;
     }
     drawPreview();
+    if (!cfg.manual) schedulePreview();  // 自动时间模式：预览要跟着真实时间走
   } catch (e) {
     $('pill').textContent = '设备未响应';
     $('pill').className = 'off';
@@ -917,25 +1023,34 @@ async function poll() {
 // ---- 事件绑定 ----
 function bind() {
 
-  $('latH').onclick = () => { $('latH').textContent = $('latH').textContent.trim() === 'N' ? 'S' : 'N'; readForm(); drawPreview(); };
-  $('lonH').onclick = () => { $('lonH').textContent = $('lonH').textContent.trim() === 'E' ? 'W' : 'E'; readForm(); drawPreview(); };
+  $('latH').onclick = () => { $('latH').textContent = $('latH').textContent.trim() === 'N' ? 'S' : 'N'; readForm(); drawPreview(); schedulePreview(); };
+  $('lonH').onclick = () => { $('lonH').textContent = $('lonH').textContent.trim() === 'E' ? 'W' : 'E'; readForm(); drawPreview(); schedulePreview(); };
 
   $('azfine-l').onclick = () => azNudge(-5);
   $('azfine-r').onclick = () => azNudge(+5);
+
+  // 屏幕方向：0/2 竖屏、1/3 横屏（保存后设备才真正切换）
+  document.querySelectorAll('#rotChips [data-rot]').forEach(b => b.onclick = () => {
+    rotSel(Number(b.dataset.rot));
+    applyScreenSize();
+    toast('屏幕方向：' + (cfg.rot & 1 ? '横屏 320×240' : '竖屏 240×320') + '（保存后设备生效）');
+  });
 
   const live = ['camAz', 'latD', 'latM', 'latS', 'lonD', 'lonM', 'lonS', 'dt', 'tz'];
   live.forEach(id => $(id).addEventListener('input', () => {
     readForm(); drawPreview();
     if (id === 'camAz') azSync(cfg.camAz, false);
+    if (id !== 'camAz') schedulePreview();           // 时间 / 经纬度变了：重新问设备天体位置
   }));
   ['ssid', 'pass', 'url'].forEach(id => $(id).addEventListener('input', readForm));
 
-  $('tAuto').onclick = () => { setTimeMode(false); readForm(); };
+  $('tAuto').onclick = () => { setTimeMode(false); readForm(); schedulePreview(); };
   $('tManual').onclick = () => {
     if (!$('tz').value) $('tz').value = 8;
     setTimeMode(true);
     if (!$('dt').value) $('dt').value = fmtLocalInput(Date.now() / 1000, parseFloat($('tz').value) || 8);
     readForm();
+    schedulePreview();
   };
   document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => {
     const tz = parseFloat($('tz').value) || 0;
@@ -947,6 +1062,7 @@ function bind() {
     cfg.epoch = base.getTime() / 1000 - tz * 3600;
     $('dt').value = fmtLocalInput(cfg.epoch, tz);
     readForm();
+    schedulePreview();
     toast('基准时间已设为 ' + $('dt').value.replace('T', ' '));
   });
   ['fov', 'baseAlt', 'twinkle'].forEach(id => $(id).addEventListener('input', () => {
@@ -961,6 +1077,7 @@ function bind() {
 buildAzWheel();
 bind();
 bindDmsSpin();
+applyScreenSize();            // 先用横屏默认比例，poll 拿到 scrW/scrH 后自动切换
 fillForm(false);
 readForm();
 drawPreview();

@@ -26,7 +26,8 @@ EXE = ROOT / 'tools' / 'verify_render.exe'
 
 RAD = math.pi / 180
 DEG = 180 / math.pi
-RES = 240
+W = 320
+H = 240
 
 # ── 固件的天体放大倍数（与 src/astro.cpp 保持一致）──
 BODY_MAGNIFY = 4.0
@@ -159,11 +160,17 @@ def lerp_color_keys(keys, alt):
 
 
 def proj_center_alt(base_alt, fov):
-    return clamp(base_alt + fov / 2, 0, 90)
+    # 与固件一致：垂直半视场（横屏 = fov/2；竖屏高边更长，要按投影反算）
+    return clamp(base_alt + half_v(fov), 0, 90)
 
 
 def proj_k(fov):
-    return (RES / 2) / (2 * math.tan((fov / 4) * RAD))
+    # fov 绑定屏幕短边（横屏=高、竖屏=宽），与固件 settings.h 的 skyProjK 一致
+    return (min(W, H) / 2) / (2 * math.tan((fov / 4) * RAD))
+
+
+def half_v(fov):
+    return 2 * math.atan((H / 2) / (2 * proj_k(fov))) * DEG
 
 
 def proj_px_per_deg(theta, fov):
@@ -184,7 +191,7 @@ def project_sky(az, alt, cam_az, base_alt, fov):
     sin_t = math.sqrt(u * u + v * v)
     rho = 2 * sin_t / max(1 + w, 1e-9) * proj_k(fov)
     inv = rho / sin_t if sin_t > 1e-12 else 0
-    return (RES / 2 + u * inv, RES / 2 - v * inv, math.atan2(sin_t, w))
+    return (W / 2 + u * inv, H / 2 - v * inv, math.atan2(sin_t, w))
 
 
 # ---------------------------------------------------------------------------
@@ -219,14 +226,14 @@ def render_sky_html(sec, lat, lon, cam_az, base_alt, fov, sky_keys, h_opp):
     sun_x, sun_y, sun_t = project_sky(sun_az, sun_alt, cam_az, base_alt, fov)
     disk_px = max(MIN_BODY_RAD_PX, SUN_ANG_RAD * proj_px_per_deg(sun_t, fov))
     disk_px2 = disk_px * disk_px
-    glow_r = 45 / fov * RES
+    glow_r = 45 / fov * H
     glow_r2 = glow_r * glow_r
     disk_vis = smoothstep(-1.5, 0, sun_alt)
 
     dc = (255, lerp(255, 214, sun_red), lerp(255, 158, sun_red))
     de = (255, lerp(250, 150, sun_red), lerp(240, 92, sun_red))
 
-    sun_possible = (-glow_r < sun_x < RES + glow_r) and (-glow_r < sun_y < RES + glow_r)
+    sun_possible = (-glow_r < sun_x < W + glow_r) and (-glow_r < sun_y < H + glow_r)
     csun, ssun = math.cos(sun_az * RAD), math.sin(sun_az * RAD)
     mix_half = 0.5 * az_contrast
     aR = h_cool[0] + (h[0] - h_cool[0]) * 0.5
@@ -237,11 +244,11 @@ def render_sky_html(sec, lat, lon, cam_az, base_alt, fov, sky_keys, h_opp):
     bB = (h[2] - h_cool[2]) * mix_half
 
     frame = bytearray()
-    for yy in range(RES):
-        v = RES / 2 - (yy + 0.5)
+    for yy in range(H):
+        v = H / 2 - (yy + 0.5)
         dyp = yy + 0.5 - sun_y
-        for xx in range(RES):
-            u = xx + 0.5 - RES / 2
+        for xx in range(W):
+            u = xx + 0.5 - W / 2
             rr = math.sqrt(u * u + v * v)
 
             # 逐像素反投影（HTML buildBgTables）
@@ -307,7 +314,8 @@ def star_list_html(sec, lat, lon, cam_az, base_alt, fov, sun_alt, twinkle_amt, t
     if star_vis < 0.01:
         return []
     jd = sec / 86400.0 + 2440587.5
-    m = RES * 0.05
+    mx = W * 0.05
+    my = H * 0.05
     out = []
     for i, st in enumerate(stars):
         ra_h, dec, mag, bv = st
@@ -315,10 +323,10 @@ def star_list_html(sec, lat, lon, cam_az, base_alt, fov, sun_alt, twinkle_amt, t
         if alt < 0:
             continue
         x, y, _ = project_sky(az, alt, cam_az, base_alt, fov)
-        if x < -m or x > RES + m or y < -m or y > RES + m:
+        if x < -mx or x > W + mx or y < -my or y > H + my:
             continue
-        edge = min(smoothstep(-m, m, x), smoothstep(RES + m, RES - m, x),
-                   smoothstep(-m, m, y), smoothstep(RES + m, RES - m, y))
+        edge = min(smoothstep(-mx, mx, x), smoothstep(W + mx, W - mx, x),
+                   smoothstep(-my, my, y), smoothstep(H + my, H - my, y))
         horizon = smoothstep(0, 10, alt)
         intensity = mag_to_intensity(mag) * star_vis * horizon * edge
         if intensity < 0.02:
@@ -360,13 +368,18 @@ def main():
         return 1
 
     sec = float(sys.argv[1])
-    cfg = {'camAz': 180.0, 'fov': 68.0, 'baseAlt': 0.0, 'lat': 39.9, 'lon': 116.4}
-    mapping = {'az': 'camAz', 'fov': 'fov', 'baseAlt': 'baseAlt', 'lat': 'lat', 'lon': 'lon'}
+    cfg = {'camAz': 180.0, 'fov': 68.0, 'baseAlt': 0.0, 'lat': 39.9, 'lon': 116.4, 'rot': 1}
+    mapping = {'az': 'camAz', 'fov': 'fov', 'baseAlt': 'baseAlt',
+               'lat': 'lat', 'lon': 'lon', 'rot': 'rot'}
     for a in sys.argv[2:]:
         if '=' in a:
             k, v = a.split('=', 1)
             if k in mapping:
                 cfg[mapping[k]] = float(v)
+
+    # 画布尺寸随 rot（0/2 竖屏 240×320，1/3 横屏 320×240），与固件一致
+    global W, H
+    W, H = (320, 240) if int(cfg['rot']) & 1 else (240, 320)
 
     sky_keys, h_opp, stars = parse_tables()
     sky_keys = [(a, z, list(SKY_H_OVERRIDE.get(a, h))) for a, z, h in sky_keys]   # 同步固件的有意偏离
@@ -382,7 +395,7 @@ def main():
     out_ppm.parent.mkdir(exist_ok=True)
     args = [str(EXE), 'sky888', str(sec), str(out_ppm),
             f'az={cfg["camAz"]}', f'fov={cfg["fov"]}', f'baseAlt={cfg["baseAlt"]}',
-            f'lat={cfg["lat"]}', f'lon={cfg["lon"]}']
+            f'lat={cfg["lat"]}', f'lon={cfg["lon"]}', f'rot={int(cfg["rot"])}']
     run = subprocess.run(args, capture_output=True, text=True, encoding='utf-8', errors='replace')
     print('[ fw ] ' + run.stdout.strip().replace('\n', '\n[fw ] '))
 
@@ -392,16 +405,16 @@ def main():
           f'  ← Δalt={abs(fw_alt-sun_alt):.2e}° Δaz={abs(fw_az-sun_az):.2e}°')
 
     w, h, fw = read_ppm(out_ppm)
-    assert (w, h) == (RES, RES) and len(fw) == RES * RES * 3
+    assert (w, h) == (W, H) and len(fw) == W * H * 3
 
     worst, wsum, wpos = 0, 0.0, (0, 0)
-    for i in range(RES * RES):
+    for i in range(W * H):
         for ch in range(3):
             d = abs(fw[i * 3 + ch] - ref[i * 3 + ch])
             wsum += d
             if d > worst:
-                worst, wpos = d, (i % RES, i // RES)
-    print(f'[2] 天空逐像素：最大偏差 {worst:.0f} 级 @{wpos}，平均 {wsum / (RES*RES*3):.3f} 级')
+                worst, wpos = d, (i % W, i // W)
+    print(f'[2] 天空逐像素：最大偏差 {worst:.0f} 级 @{wpos}，平均 {wsum / (W*H*3):.3f} 级')
     print(f'    （固件无量化、HTML 有 0.5° 的 kk 量化 + 1.4° 方位量化，'
           f'所以允许到 {TOL:.0f} 级）')
 
@@ -409,7 +422,8 @@ def main():
     tw = 0.55
     run2 = subprocess.run([str(EXE), 'stars', str(sec), f'az={cfg["camAz"]}',
                            f'fov={cfg["fov"]}', f'baseAlt={cfg["baseAlt"]}',
-                           f'lat={cfg["lat"]}', f'lon={cfg["lon"]}', f'twinkle={tw}'],
+                           f'lat={cfg["lat"]}', f'lon={cfg["lon"]}', f'twinkle={tw}',
+                           f'rot={int(cfg["rot"])}'],
                           capture_output=True, text=True, encoding='utf-8', errors='replace')
     fw_stars = []
     for line in run2.stdout.splitlines()[2:]:
@@ -438,7 +452,7 @@ def main():
     ok = worst <= TOL and len(fw_stars) == len(ref_stars)
     # 机器可读的 ASCII 结果行（供脚本调用，避开控制台编码问题）
     print(f'RESULT sec={sec:.0f} sunAlt={fw_alt:.4f} sunAz={fw_az:.4f} '
-          f'skyMax={worst:.0f} skyMean={wsum / (RES*RES*3):.3f} '
+          f'skyMax={worst:.0f} skyMean={wsum / (W*H*3):.3f} '
           f'stars={len(fw_stars)}/{len(ref_stars)} ok={1 if ok else 0}')
     print('\n结论：' + ('一致（差异都在量化/精度范围内）' if ok else '存在超出容差的差异'))
     return 0 if ok else 1

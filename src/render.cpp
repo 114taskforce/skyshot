@@ -29,13 +29,16 @@ static const float MOON_MARIA[7][5] = {
 struct MoonPatch { float x, y, r, a; bool bright; };
 static MoonPatch MOON_CRATERS[N_CRATERS];
 
-// ---- 4×4 Bayer 抖动矩阵 ----
-static const uint8_t BAYER4[4][4] = {
-  {  0,  8,  2, 10 },
-  { 12,  4, 14,  6 },
-  {  3, 11,  1,  9 },
-  { 15,  7, 13,  5 },
-};
+// 抖动噪声：interleaved gradient noise（Jimenez 2014），逐像素 0..1
+// 选它而不是 4×4 Bayer：Bayer 是有结构的图案，夜空那种「整屏只跨 4~5 个
+// 6 位台阶」的暗渐变会显出「几种纹理不同的宽条带」；无规则噪声的纹理处处
+// 均匀，只剩细颗粒，台阶过渡看不出来。纯 (x,y) 函数 → 静止画面不闪。
+static inline float ditherNoise(int x, int y) {
+  const float f = 0.06711056f * (float)x + 0.00583715f * (float)y;
+  const float g = f - (float)(int)f;                 // fract
+  const float h = 52.9829189f * g;
+  return h - (float)(int)h;                           // fract
+}
 
 // 星点半径（像素）：HTML 原版 0.55 + intensity × 0.8，实机 240 屏上太小，整体放大一倍
 #define STAR_RADIUS_MAGNIFY 2.0f
@@ -51,41 +54,61 @@ static inline float smoothstepf(float a, float b, float x) {
   return t * t * (3.0f - 2.0f * t);
 }
 
-// 888 → 565，带 4×4 有序抖动
-// 要点：抖动与取整都在「编码域」做（×31/255 或 ×63/255），而不是 >>3 / >>2。
-// 5 bit 的实际量化格是 255/31≈8.23，用 >>3 会引入系统性偏色（最大 1 格）；
-// 再叠加「加满一格锯齿」的抖动，4×4 块内均值即严格等于原值。
-static inline uint16_t pack565Dither(float r, float g, float b, int x, int y) {
-  const float d = ((float)BAYER4[y & 3][x & 3] + 0.5f) * (1.0f / 16.0f);   // 0 .. 1
-  int rc = (int)(r * (31.0f / 255.0f) + d);
-  int gc = (int)(g * (63.0f / 255.0f) + d);
-  int bc = (int)(b * (31.0f / 255.0f) + d);
-  if (rc < 0) rc = 0; else if (rc > 31) rc = 31;
-  if (gc < 0) gc = 0; else if (gc > 63) gc = 63;
-  if (bc < 0) bc = 0; else if (bc > 31) bc = 31;
-  return (uint16_t)((rc << 11) | (gc << 5) | bc);
+// ---------------------------------------------------------------------------
+//  背景缓存：18 位色（6-6-6），按位打包、不抖动 —— 屏幕本身就是 18 位
+//  （ST7789 COLMOD=0x66），6 位量化格 255/63≈4.05 级，天渐变足够平滑，
+//  再叠加抖动只会引入噪声。整帧 240×320 只需约 169 KB。
+//  位流：像素 i 占第 i*18 位起 18 位（R 高 6 位、G 中 6 位、B 低 6 位）
+// ---------------------------------------------------------------------------
+static inline void sky666Set(uint8_t *buf, int idx, int r6, int g6, int b6) {
+  const uint32_t v = ((uint32_t)r6 << 12) | ((uint32_t)g6 << 6) | (uint32_t)b6;
+  const uint32_t bit = (uint32_t)idx * 18u;
+  const uint32_t byte = bit >> 3, off = bit & 7;
+  uint32_t acc = (uint32_t)buf[byte] | ((uint32_t)buf[byte + 1] << 8) |
+                 ((uint32_t)buf[byte + 2] << 16) | ((uint32_t)buf[byte + 3] << 24);
+  acc = (acc & ~(0x3FFFFu << off)) | (v << off);
+  buf[byte]     = (uint8_t)acc;
+  buf[byte + 1] = (uint8_t)(acc >> 8);
+  buf[byte + 2] = (uint8_t)(acc >> 16);
+  buf[byte + 3] = (uint8_t)(acc >> 24);
 }
 
-// 888 → 565，纯四舍五入（不抖动）。
-// 缓存天空层已经抖动过了，推屏时再来一次抖动会把已量化的值整体推高一档，
-// 所以这里用普通取整——它对「565 → 888 → 565」是恒等的。
-static inline uint16_t pack565Round(float r, float g, float b) {
-  int rc = (int)(r * (31.0f / 255.0f) + 0.5f);
-  int gc = (int)(g * (63.0f / 255.0f) + 0.5f);
-  int bc = (int)(b * (31.0f / 255.0f) + 0.5f);
-  if (rc < 0) rc = 0; else if (rc > 31) rc = 31;
-  if (gc < 0) gc = 0; else if (gc > 63) gc = 63;
-  if (bc < 0) bc = 0; else if (bc > 31) bc = 31;
-  return (uint16_t)((rc << 11) | (gc << 5) | bc);
+// 6 → 8 位展开表（v6 × 255/63 四舍五入；直接 <<2 到端点只有 252，会多出 3 级误差）
+static const uint8_t D6[64] = {
+    0,   4,   8,  12,  16,  20,  24,  28,
+   32,  36,  40,  45,  49,  53,  57,  61,
+   65,  69,  73,  77,  81,  85,  89,  93,
+   97, 101, 105, 109, 113, 117, 121, 125,
+  130, 134, 138, 142, 146, 150, 154, 158,
+  162, 166, 170, 174, 178, 182, 186, 190,
+  194, 198, 202, 206, 210, 215, 219, 223,
+  227, 231, 235, 239, 243, 247, 251, 255,
+};
+
+static inline void sky666Get(const uint8_t *buf, int idx, uint8_t *p) {
+  const uint32_t bit = (uint32_t)idx * 18u;
+  const uint32_t byte = bit >> 3, off = bit & 7;
+  const uint32_t acc = (uint32_t)buf[byte] | ((uint32_t)buf[byte + 1] << 8) |
+                       ((uint32_t)buf[byte + 2] << 16) | ((uint32_t)buf[byte + 3] << 24);
+  const uint32_t v = (acc >> off) & 0x3FFFFu;      // r6 g6 b6
+  p[0] = D6[(v >> 12) & 0x3F];
+  p[1] = D6[(v >> 6) & 0x3F];
+  p[2] = D6[v & 0x3F];
 }
 
-static inline void unpack565(uint16_t c, uint8_t *p) {
-  const uint8_t r5 = (uint8_t)((c >> 11) & 0x1F);
-  const uint8_t g6 = (uint8_t)((c >> 5) & 0x3F);
-  const uint8_t b5 = (uint8_t)(c & 0x1F);
-  p[0] = (uint8_t)((r5 << 3) | (r5 >> 2));
-  p[1] = (uint8_t)((g6 << 2) | (g6 >> 4));
-  p[2] = (uint8_t)((b5 << 3) | (b5 >> 2));
+// 888 浮点 → 6 位（四舍五入到最近格；不抖动）
+static inline int to6(float v) {
+  const int i = (int)(v * (63.0f / 255.0f) + 0.5f);
+  return i < 0 ? 0 : (i > 63 ? 63 : i);
+}
+
+// 同上，但带抖动：6 位只有 64 级，天空这种横跨几十级的大渐变不加抖动会看到
+// 层纹（夜里尤其明显：整屏可能只跨 4~5 级）。做法「加噪声再截断」——噪声在
+// 0..1 个量化格上均匀分布，均值不失真；用无规则噪声而不是 Bayer 图案，
+// 暗部不会出现纹理条带。
+static inline int to6Dither(float v, int x, int y) {
+  const int i = (int)(v * (63.0f / 255.0f) + ditherNoise(x, y));
+  return i < 0 ? 0 : (i > 63 ? 63 : i);
 }
 
 // 'lighter' 叠加（相当于 canvas globalCompositeOperation = lighter）
@@ -120,6 +143,8 @@ void renderInit(const SkyConfig *cfg) {
 //  整帧状态（HTML L1012..L1069 每帧量 + L1150..L1184 星表量 + L1252..L1294 月亮量）
 // ===========================================================================
 void frameStateCompute(FrameState *fs, const SkyConfig *cfg, double jd) {
+  skyScreenSize(cfg->rot, &fs->w, &fs->h);      // 画布尺寸（旋转后可变）
+
   const SkyPos sun = sunPosition(jd, cfg->lat, cfg->lon);
   fs->sunAlt = sun.alt;
   fs->sunAz  = sun.az;
@@ -147,7 +172,9 @@ void frameStateCompute(FrameState *fs, const SkyConfig *cfg, double jd) {
   const double diskPx = fmax(MIN_BODY_RAD_PX, SUN_ANG_RAD * projPxPerDeg(cfg, sunP.t));
   fs->diskPx2 = (float)(diskPx * diskPx);
 
-  const double glowRadiusPx = 45.0 / cfg->fov * RENDER_RES;
+  // 光晕尺度跟投影比例走（= 短边），不是跟屏幕高走：竖屏时屏幕更高，
+  // 若按高算光晕会被放大 4/3 倍
+  const double glowRadiusPx = 45.0 / cfg->fov * SCREEN_SHORT_PX;
   fs->glowRadiusPx2 = (float)(glowRadiusPx * glowRadiusPx);
   fs->glowK    = (float)glowK;
   fs->diskVis  = (float)smoothstepd(-1.5, 0, sun.alt);
@@ -174,12 +201,13 @@ void frameStateCompute(FrameState *fs, const SkyConfig *cfg, double jd) {
   fs->azCosC = (float)cos(azDiff);
   fs->azSinS = (float)sin(azDiff);
 
-  fs->sunPossible = (fs->sunSX > -glowRadiusPx && fs->sunSX < RENDER_RES + glowRadiusPx &&
-                     fs->sunSY > -glowRadiusPx && fs->sunSY < RENDER_RES + glowRadiusPx);
+  fs->sunPossible = (fs->sunSX > -glowRadiusPx && fs->sunSX < fs->w + glowRadiusPx &&
+                     fs->sunSY > -glowRadiusPx && fs->sunSY < fs->h + glowRadiusPx);
 
   // ---- 星表 ----
   const double starVis = smoothstepd(-8, -16, sun.alt);
-  const float  m = RENDER_RES * 0.05f;              // 边缘渐隐范围（像素）
+  const float  mx = fs->w * 0.05f;             // 边缘渐隐范围（像素，宽）
+  const float  my = fs->h * 0.05f;             // 边缘渐隐范围（像素，高）
   fs->nStars = 0;
 
   if (starVis >= 0.01) {
@@ -189,11 +217,11 @@ void frameStateCompute(FrameState *fs, const SkyConfig *cfg, double jd) {
 
       const SkyPt pt = projectSky(cfg, pos.az, pos.alt);
       const float x = (float)pt.x, y = (float)pt.y;
-      if (x < -m || x > RENDER_RES + m || y < -m || y > RENDER_RES + m) continue;
+      if (x < -mx || x > fs->w + mx || y < -my || y > fs->h + my) continue;
 
       const float edgeFade = fminf(
-          fminf(smoothstepf(-m, m, x), smoothstepf(RENDER_RES + m, RENDER_RES - m, x)),
-          fminf(smoothstepf(-m, m, y), smoothstepf(RENDER_RES + m, RENDER_RES - m, y)));
+          fminf(smoothstepf(-mx, mx, x), smoothstepf(fs->w + mx, fs->w - mx, x)),
+          fminf(smoothstepf(-my, my, y), smoothstepf(fs->h + my, fs->h - my, y)));
       const float horizonFade = (float)smoothstepd(0, 10, pos.alt);
 
       const float intensity = (float)magToIntensity(STARS[s][2]) * (float)starVis * horizonFade * edgeFade;
@@ -231,7 +259,7 @@ void frameStateCompute(FrameState *fs, const SkyConfig *cfg, double jd) {
     const SkyPt pt = projectSky(cfg, mp.az, mp.alt);
     const float x = (float)pt.x, y = (float)pt.y;
 
-    if (x >= -20.0f && x <= RENDER_RES + 20.0f && y >= -20.0f && y <= RENDER_RES + 20.0f) {
+    if (x >= -20.0f && x <= fs->w + 20.0f && y >= -20.0f && y <= fs->h + 20.0f) {
       const MoonPhase ph = moonPhase(jd);
       const float r = fmaxf((float)MIN_BODY_RAD_PX, (float)(MOON_ANG_RAD * projPxPerDeg(cfg, pt.t)));
 
@@ -347,7 +375,7 @@ static inline void skyPixel(int x, int y, const FrameState *fs,
 }
 
 void renderSkyRow(uint8_t *rgb, int y, const FrameState *fs) {
-  for (int x = 0; x < RENDER_RES; x++) {
+  for (int x = 0; x < fs->w; x++) {
     float r, g, b;
     skyPixel(x, y, fs, &r, &g, &b);
     rgb[x * 3]     = (uint8_t)(r + 0.5f);
@@ -359,7 +387,7 @@ void renderSkyRow(uint8_t *rgb, int y, const FrameState *fs) {
 // ===========================================================================
 //  13. 星点（HTML L1143..L1213，'lighter' 叠加）
 // ===========================================================================
-static void drawStarRow(uint8_t *rgb, int y, const StarDraw *s) {
+static void drawStarRow(uint8_t *rgb, int y, const StarDraw *s, int w) {
   const float R = fmaxf(s->radius, s->haloR);
   const float yc = y + 0.5f;
   if (yc < s->y - R - 1.0f || yc > s->y + R + 1.0f) return;
@@ -367,7 +395,7 @@ static void drawStarRow(uint8_t *rgb, int y, const StarDraw *s) {
   int x0 = (int)floorf(s->x - R - 1.0f);
   int x1 = (int)ceilf(s->x + R + 1.0f);
   if (x0 < 0) x0 = 0;
-  if (x1 > RENDER_RES - 1) x1 = RENDER_RES - 1;
+  if (x1 > w - 1) x1 = w - 1;
 
   for (int x = x0; x <= x1; x++) {
     uint8_t *p = rgb + x * 3;
@@ -440,14 +468,14 @@ static inline void moonBaseColor(float X, float Y, float r, float *cr, float *cg
   }
 }
 
-static void drawMoonRow(uint8_t *rgb, int y, const MoonDraw *mn) {
+static void drawMoonRow(uint8_t *rgb, int y, const MoonDraw *mn, int w) {
   const float yc = y + 0.5f;
   if (yc < mn->y - mn->haloR - 1.0f || yc > mn->y + mn->haloR + 1.0f) return;
 
   int x0 = (int)floorf(mn->x - mn->haloR - 1.0f);
   int x1 = (int)ceilf(mn->x + mn->haloR + 1.0f);
   if (x0 < 0) x0 = 0;
-  if (x1 > RENDER_RES - 1) x1 = RENDER_RES - 1;
+  if (x1 > w - 1) x1 = w - 1;
 
   const float r = mn->r;
   const float inner = r * 0.5f;
@@ -524,18 +552,21 @@ static void drawMoonRow(uint8_t *rgb, int y, const MoonDraw *mn) {
 }
 
 // ===========================================================================
-//  ① 背景层（天空 + 太阳 + 月亮）→ RGB565 缓存（含 4×4 有序抖动）
+//  ① 背景层（天空 + 太阳 + 月亮）→ RGB666 缓存（18 位打包，不抖动）
 //  月亮不闪烁，所以和天空一起烘进背景；只有星星需要逐帧叠加。
 //  每分钟重建一次，其余时间设备可以待机。
 // ===========================================================================
-void renderSky(uint16_t *sky565, const FrameState *fs) {
-  static uint8_t row[RENDER_RES * 3];
-  for (int y = 0; y < RENDER_RES; y++) {
+void renderSky(uint8_t *sky666, const FrameState *fs) {
+  static uint8_t row[SCREEN_MAX_DIM * 3];
+  int i = 0;
+  for (int y = 0; y < fs->h; y++) {
     renderSkyRow(row, y, fs);        // 天空色 + 太阳
     renderMoonRow(row, y, fs);       // 月亮（背景的一部分）
-    uint16_t *dst = sky565 + (size_t)y * RENDER_RES;
-    for (int x = 0; x < RENDER_RES; x++) {
-      dst[x] = pack565Dither(row[x * 3], row[x * 3 + 1], row[x * 3 + 2], x, y);
+    for (int x = 0; x < fs->w; x++, i++) {
+      // 背景层带抖动（消层纹）；逐帧叠上去的星星不抖，直接取整
+      sky666Set(sky666, i, to6Dither(row[x * 3], x, y),
+                           to6Dither(row[x * 3 + 1], x, y),
+                           to6Dither(row[x * 3 + 2], x, y));
     }
   }
 }
@@ -544,28 +575,30 @@ void renderSky(uint16_t *sky565, const FrameState *fs) {
 //  ②③ 独立图层：星星（位置 / 大小 / 颜色 → 直接叠加）/ 月亮
 // ===========================================================================
 void renderStarRow(uint8_t *rgb, int y, const FrameState *fs) {
-  for (int i = 0; i < fs->nStars; i++) drawStarRow(rgb, y, &fs->stars[i]);
+  for (int i = 0; i < fs->nStars; i++) drawStarRow(rgb, y, &fs->stars[i], fs->w);
 }
 
 void renderMoonRow(uint8_t *rgb, int y, const FrameState *fs) {
-  if (fs->moon.visible) drawMoonRow(rgb, y, &fs->moon);
+  if (fs->moon.visible) drawMoonRow(rgb, y, &fs->moon, fs->w);
 }
 
 // ===========================================================================
 //  合成一行：缓存背景 → 叠星（月亮已烘进背景，不逐帧画）
 // ===========================================================================
-void renderFrameRow(uint8_t *rgb, int y, const FrameState *fs, const uint16_t *sky565) {
-  const uint16_t *src = sky565 + (size_t)y * RENDER_RES;
-  for (int x = 0; x < RENDER_RES; x++) unpack565(src[x], rgb + x * 3);
+void renderFrameRow(uint8_t *rgb, int y, const FrameState *fs, const uint8_t *sky666) {
+  const int base = y * fs->w;
+  for (int x = 0; x < fs->w; x++) sky666Get(sky666, base + x, rgb + x * 3);
 
   renderStarRow(rgb, y, fs);
 }
 
-// 同上，最后打包成 RGB565（普通取整：对已抖动的天空是恒等变换）
-void renderFrameRow565(uint16_t *row565, int y, const FrameState *fs, const uint16_t *sky565) {
-  static uint8_t row[RENDER_RES * 3];
-  renderFrameRow(row, y, fs, sky565);
-  for (int x = 0; x < RENDER_RES; x++) {
-    row565[x] = pack565Round(row[x * 3], row[x * 3 + 1], row[x * 3 + 2]);
+// 同上，输出 18 位行：每像素 3 字节，每字节的高 6 位有效（ST7789 COLMOD=0x66）
+void renderFrameRow666(uint8_t *row666, int y, const FrameState *fs, const uint8_t *sky666) {
+  static uint8_t row[SCREEN_MAX_DIM * 3];
+  renderFrameRow(row, y, fs, sky666);
+  for (int x = 0; x < fs->w; x++) {
+    row666[x * 3]     = (uint8_t)(to6(row[x * 3])     << 2);
+    row666[x * 3 + 1] = (uint8_t)(to6(row[x * 3 + 1]) << 2);
+    row666[x * 3 + 2] = (uint8_t)(to6(row[x * 3 + 2]) << 2);
   }
 }

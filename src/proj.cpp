@@ -40,11 +40,14 @@ float projKkFromSinAlt(float sinAlt) {
 }
 
 double projCenterAlt(const SkyConfig *cfg) {
-  return clampd(cfg->baseAlt + cfg->fov / 2, 0, 90);
+  // 视线中心 = 底边高度角 + 垂直半视场（横屏 = fov/2，竖屏更大，见 settings.h）
+  return clampd(cfg->baseAlt + skyHalfV(cfg), 0, 90);
 }
 
 double projK(const SkyConfig *cfg) {
-  return (PROJ_RES / 2.0) / (2.0 * tan((cfg->fov / 4) * ASTRO_RAD));
+  // fov 语义 = 屏幕短边的角宽（横屏 240×高，竖屏 240×宽）：
+  // 横屏时与旧版 240×240 完全一致，竖屏时水平覆盖不变、垂直看到更多天空
+  return skyProjK(cfg);
 }
 
 double projPxPerDeg(const SkyConfig *cfg, double thetaRad) {
@@ -53,36 +56,42 @@ double projPxPerDeg(const SkyConfig *cfg, double thetaRad) {
 }
 
 SkyPt projectSky(const SkyConfig *cfg, double az, double alt) {
+  int w, h;
+  skyScreenSize(cfg->rot, &w, &h);
+
   const double a0 = projCenterAlt(cfg) * ASTRO_RAD;
   const double sa0 = sin(a0), ca0 = cos(a0);
   const double a = alt * ASTRO_RAD, sa = sin(a), ca = cos(a);
   const double d = (fmod(az - cfg->camAz + 540.0, 360.0) - 180.0) * ASTRO_RAD;
   const double cd = cos(d), sd = sin(d);
 
-  const double w = clampd(sa0 * sa + ca0 * ca * cd, -1, 1);   // cosθ
-  const double u = ca * sd;                                  // 向右分量
-  const double v = ca0 * sa - sa0 * ca * cd;                 // 向上分量
+  const double w_ = clampd(sa0 * sa + ca0 * ca * cd, -1, 1);  // cosθ
+  const double u = ca * sd;                                   // 向右分量
+  const double v = ca0 * sa - sa0 * ca * cd;                  // 向上分量
   const double sinT = sqrt(u * u + v * v);
 
-  const double rho = 2 * sinT / fmax(1 + w, 1e-9) * projK(cfg);  // 2·tan(θ/2)·k
+  const double rho = 2 * sinT / fmax(1 + w_, 1e-9) * projK(cfg); // 2·tan(θ/2)·k
   const double inv = sinT > 1e-12 ? rho / sinT : 0;
 
   SkyPt p;
-  p.x = PROJ_RES / 2.0 + u * inv;
-  p.y = PROJ_RES / 2.0 - v * inv;
-  p.t = atan2(sinT, w);
+  p.x = w / 2.0 + u * inv;
+  p.y = h / 2.0 - v * inv;
+  p.t = atan2(sinT, w_);
   return p;
 }
 
 // 单像素反投影（精确版：double + asin/atan2，只给验证工具用）
 void projInversePixel(const SkyConfig *cfg, int x, int y, double *altDeg, double *azRad) {
+  int w, h;
+  skyScreenSize(cfg->rot, &w, &h);
+
   const double a0 = projCenterAlt(cfg) * ASTRO_RAD;
   const double sa0 = sin(a0), ca0 = cos(a0);
   const double az0 = cfg->camAz * ASTRO_RAD;
   const double k = projK(cfg);
 
-  const double u = (x + 0.5) - PROJ_RES / 2.0;
-  const double v = PROJ_RES / 2.0 - (y + 0.5);
+  const double u = (x + 0.5) - w / 2.0;
+  const double v = h / 2.0 - (y + 0.5);
   const double rr = sqrt(u * u + v * v);
 
   if (rr < 1e-6) {
@@ -107,16 +116,20 @@ void projInversePixel(const SkyConfig *cfg, int x, int y, double *altDeg, double
 
 void projBegin(const SkyConfig *cfg, ProjCtx *ctx) {
   const float a0 = (float)(projCenterAlt(cfg) * ASTRO_RAD);
+  int w, h;
+  skyScreenSize(cfg->rot, &w, &h);
   ctx->sa0 = sinf(a0);
   ctx->ca0 = cosf(a0);
-  ctx->k = (float)projK(cfg);
+  ctx->k   = (float)projK(cfg);
+  ctx->cx  = w / 2.0f;
+  ctx->cy  = h / 2.0f;
 }
 
 // 逐像素快速反投影：全程只有一次 sqrtf，没有反三角
 // （ESP32-C6 上 newlib 的 asinf/atan2f 会退化成 double，慢约 100 倍）
 void projPixelDir(const ProjCtx *ctx, int x, int y, SkyDir *dir) {
-  const float u = (x + 0.5f) - PROJ_RES / 2.0f;
-  const float v = PROJ_RES / 2.0f - (y + 0.5f);
+  const float u = (x + 0.5f) - ctx->cx;
+  const float v = ctx->cy - (y + 0.5f);
   const float rr = sqrtf(u * u + v * v);
 
   float sinT, cosT, sinPA, cosPA;

@@ -5,19 +5,11 @@
 // ---------------------------------------------------------------------------
 #include <Arduino.h>
 #include "Arduino_GFX_Library.h"
-
-#define PIN_LCD_MISO  5
-#define PIN_LCD_MOSI  6
-#define PIN_LCD_SCLK  7
-#define PIN_LCD_CS    14
-#define PIN_LCD_DC    15
-#define PIN_LCD_RST   21
-#define PIN_BK_LIGHT  22
+#include "config.h"
 
 Arduino_DataBus *bus = new Arduino_ESP32SPI(PIN_LCD_DC, PIN_LCD_CS, PIN_LCD_SCLK,
                                             PIN_LCD_MOSI, PIN_LCD_MISO);
-Arduino_GFX *gfx = new Arduino_ST7789(bus, PIN_LCD_RST, 0 /*rotation*/, true /*IPS*/,
-                                      240, 240, 0, 0, 0, 0);
+Arduino_GFX *gfx = new Arduino_ST7789(bus, PIN_LCD_RST, LCD_ROTATION /*rotation*/, true /*IPS*/);
 
 void setup()
 {

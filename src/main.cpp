@@ -1,10 +1,10 @@
 // ---------------------------------------------------------------------------
-// sunset —— ESP32-C6 + ST7789 240×240 天空 / 落日显示
+// sunset —— 微雪 ESP32-S3-LCD-2.8 + ST7789 320×240 横屏 天空 / 落日显示
 //
 //   上电：连 WiFi（STA）→ 用 HTTP API 校时 → 关闭 WiFi → 按「真实时间 +
 //         本机经纬度」渲染天空。参数默认值在 config.h 硬编码。
 //
-//   BOOT 键（GPIO9）：
+//   BOOT 键（GPIO0）：
 //     单击 → 重新联网校时（校完再次关闭 WiFi）
 //     长按 2 秒 → 打开配置热点 sunset-XXXX（http://192.168.4.1），
 //            网页改的参数存 NVS；30 秒没有设备连接就自动关闭热点
@@ -29,14 +29,14 @@
 
 static Arduino_DataBus *bus = new Arduino_ESP32SPI(PIN_LCD_DC, PIN_LCD_CS, PIN_LCD_SCLK,
                                                    PIN_LCD_MOSI, PIN_LCD_MISO);
-static Arduino_GFX *gfx = new Arduino_ST7789(bus, PIN_LCD_RST, LCD_ROTATION, true /*IPS*/,
-                                             240, 240, 0, 0, 0, 0);
+// ST7789 原生 240×320；rotation 1/3 为横屏 320×240（config.h 的 LCD_ROTATION）
+static Arduino_GFX *gfx = new Arduino_ST7789(bus, PIN_LCD_RST, LCD_ROTATION, true /*IPS*/);
 
 static SkyConfig g_cfg;
 static NetConfig g_netCfg;
 static FrameState g_fs;
-static uint16_t   g_sky[RENDER_RES * RENDER_RES];   // 天空层缓存（每分钟重建一次）
-static uint16_t   g_row565[RENDER_RES];
+static uint8_t    g_sky[RENDER_SKY_BYTES(SCREEN_MAX_PX)];   // 天空层缓存：18 位打包
+static uint8_t    g_row666[SCREEN_MAX_DIM * 3];             // 单行 18 位（最长 320×3）
 
 static uint32_t g_lastFrame   = 0;
 static uint32_t g_lastRefresh = 0;
@@ -59,6 +59,7 @@ static void refresh(void);
 static void enterWifiState(void);
 static void apStop(void);
 static void applyManualTime(void);
+static void applyRotation(void);
 
 // 屏幕状态提示：状态一变就重画一次
 static uint32_t g_statusRev   = 0;
@@ -69,24 +70,40 @@ static uint32_t g_statusDrawn = 0xFFFFFFFFu;
 // ===========================================================================
 static Preferences g_prefs;
 
+// 只在键存在时读：否则 Preferences 会为每个缺失的键打一条
+// [E][Preferences.cpp] nvs_get_* NOT_FOUND（首次上电满屏红字，其实无害）
+static void getD(Preferences &p, const char *key, double *v) {
+  if (p.isKey(key)) *v = p.getDouble(key, *v);
+}
+static void getB(Preferences &p, const char *key, bool *v) {
+  if (p.isKey(key)) *v = p.getBool(key, *v);
+}
+static void getI(Preferences &p, const char *key, int *v) {
+  if (p.isKey(key)) *v = (int)p.getInt(key, *v);
+}
+static void getS(Preferences &p, const char *key, char *dst, size_t cap) {
+  if (p.isKey(key)) p.getString(key, dst, cap);
+}
+
 static void configLoad(void) {
   skyConfigDefaults(&g_cfg);
   netConfigDefaults(&g_netCfg);
   // 读写方式打开：首次上电命名空间还不存在，只读会报 NOT_FOUND
   if (g_prefs.begin("sunset", false)) {
-    g_cfg.lat     = g_prefs.getDouble("lat",     g_cfg.lat);
-    g_cfg.lon     = g_prefs.getDouble("lon",     g_cfg.lon);
-    g_cfg.camAz   = g_prefs.getDouble("camAz",   g_cfg.camAz);
-    g_cfg.baseAlt = g_prefs.getDouble("baseAlt", g_cfg.baseAlt);
-    g_cfg.fov     = g_prefs.getDouble("fov",     g_cfg.fov);
-    g_cfg.twinkle = g_prefs.getDouble("twinkle", g_cfg.twinkle);
+    getD(g_prefs, "lat",     &g_cfg.lat);
+    getD(g_prefs, "lon",     &g_cfg.lon);
+    getD(g_prefs, "camAz",   &g_cfg.camAz);
+    getD(g_prefs, "baseAlt", &g_cfg.baseAlt);
+    getD(g_prefs, "fov",     &g_cfg.fov);
+    getD(g_prefs, "twinkle", &g_cfg.twinkle);
+    getI(g_prefs, "rot",     &g_cfg.rot);
 
-    g_prefs.getString("ssid", g_netCfg.ssid, sizeof(g_netCfg.ssid));
-    g_prefs.getString("pass", g_netCfg.pass, sizeof(g_netCfg.pass));
-    g_prefs.getString("url",  g_netCfg.url,  sizeof(g_netCfg.url));
-    g_netCfg.manual = g_prefs.getBool("manual", g_netCfg.manual);
-    g_netCfg.epoch  = g_prefs.getDouble("epoch", g_netCfg.epoch);
-    g_netCfg.tz     = g_prefs.getDouble("tz",    g_netCfg.tz);
+    getS(g_prefs, "ssid", g_netCfg.ssid, sizeof(g_netCfg.ssid));
+    getS(g_prefs, "pass", g_netCfg.pass, sizeof(g_netCfg.pass));
+    getS(g_prefs, "url",  g_netCfg.url,  sizeof(g_netCfg.url));
+    getB(g_prefs, "manual", &g_netCfg.manual);
+    getD(g_prefs, "epoch",  &g_netCfg.epoch);
+    getD(g_prefs, "tz",     &g_netCfg.tz);
     g_prefs.end();
   }
   skyConfigClamp(&g_cfg);
@@ -101,6 +118,7 @@ static void configSave(void) {
   g_prefs.putDouble("baseAlt", g_cfg.baseAlt);
   g_prefs.putDouble("fov",     g_cfg.fov);
   g_prefs.putDouble("twinkle", g_cfg.twinkle);
+  g_prefs.putInt("rot",        g_cfg.rot);
 
   g_prefs.putString("ssid", g_netCfg.ssid);
   g_prefs.putString("pass", g_netCfg.pass);
@@ -401,6 +419,37 @@ static bool argS(const char *name, char *dst, size_t cap) {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+//  取参接口：把 WebServer 的取参包成一组函数指针，保存 / 状态查询的业务逻辑
+//  （applySave / buildStateJson）与具体服务器解耦
+// ---------------------------------------------------------------------------
+struct ReqArg {
+  void *ctx;
+  bool (*has)(void *ctx, const char *name);
+  bool (*get)(void *ctx, const char *name, char *out, size_t cap);
+};
+
+static bool wsHas(void *ctx, const char *name) { return ((WebServer *)ctx)->hasArg(name); }
+static bool wsGet(void *ctx, const char *name, char *out, size_t cap) {
+  WebServer *s = (WebServer *)ctx;
+  if (!s->hasArg(name)) return false;
+  skyStrCpy(out, cap, s->arg(name).c_str());
+  return true;
+}
+
+static bool argDs(const ReqArg &a, const char *name, double *dst) {
+  char buf[64];
+  if (!a.get(a.ctx, name, buf, sizeof(buf)) || buf[0] == 0) return false;
+  *dst = strtod(buf, nullptr);
+  return true;
+}
+static bool argSs(const ReqArg &a, const char *name, char *dst, size_t cap) {
+  char buf[200];
+  if (!a.get(a.ctx, name, buf, sizeof(buf)) || buf[0] == 0) return false;
+  skyStrCpy(dst, cap, buf);
+  return true;
+}
+
 // 手动模式：基准时间从"应用配置的这一刻"起算
 static void applyManualTime(void) {
   if (!g_netCfg.manual) return;
@@ -413,9 +462,15 @@ static void applyManualTime(void) {
 // 应用新配置：重建投影表 + 立刻重画（保存后热点会自动关闭）
 static void applyConfig(void) {
   const uint32_t t0 = millis();
+  const int rotOld = g_cfg.rot;
+
   skyConfigClamp(&g_cfg);
   netConfigClamp(&g_netCfg);
   configSave();
+
+  if (g_cfg.rot != rotOld) {
+    applyRotation();                  // 换向：软件尺寸 + 面板重新初始化（否则要等复位）
+  }
   renderInit(&g_cfg);
 
   if (g_netCfg.manual) {
@@ -431,22 +486,27 @@ static void applyConfig(void) {
                 g_netCfg.manual ? "手动时间" : "联网校时", g_netCfg.ssid);
 }
 
-static void handleSave(void) {
-  argD("lat", &g_cfg.lat);
-  argD("lon", &g_cfg.lon);
-  argD("camAz", &g_cfg.camAz);
-  argD("baseAlt", &g_cfg.baseAlt);
-  argD("fov", &g_cfg.fov);
-  argD("twinkle", &g_cfg.twinkle);
+// 从请求参数写入配置（HTTP / HTTPS 共用）
+static void applySave(const ReqArg &a) {
+  argDs(a, "lat", &g_cfg.lat);
+  argDs(a, "lon", &g_cfg.lon);
+  argDs(a, "camAz", &g_cfg.camAz);
+  argDs(a, "baseAlt", &g_cfg.baseAlt);
+  argDs(a, "fov", &g_cfg.fov);
+  argDs(a, "twinkle", &g_cfg.twinkle);
 
-  argS("ssid", g_netCfg.ssid, sizeof(g_netCfg.ssid));
-  argS("pass", g_netCfg.pass, sizeof(g_netCfg.pass));
-  argS("url",  g_netCfg.url,  sizeof(g_netCfg.url));
+  argSs(a, "ssid", g_netCfg.ssid, sizeof(g_netCfg.ssid));
+  argSs(a, "pass", g_netCfg.pass, sizeof(g_netCfg.pass));
+  argSs(a, "url",  g_netCfg.url,  sizeof(g_netCfg.url));
   double d = 0;
-  if (argD("manual", &d)) g_netCfg.manual = (d != 0);
-  argD("epoch", &g_netCfg.epoch);
-  argD("tz",    &g_netCfg.tz);
+  if (argDs(a, "manual", &d)) g_netCfg.manual = (d != 0);
+  if (argDs(a, "rot", &d))    g_cfg.rot = (int)(d + 0.5);
+  argDs(a, "epoch", &g_netCfg.epoch);
+  argDs(a, "tz",    &g_netCfg.tz);
+}
 
+static void handleSave(void) {
+  applySave({&server, wsHas, wsGet});
   // 先回话再应用配置：应用过程可能重建投影表、甚至用到射频，
   // 反过来做会把响应堵在路上（网页会误报"连不上设备"）
   server.send(200, "application/json; charset=utf-8", "{\"ok\":1}");
@@ -475,13 +535,27 @@ static void jsonEscape(const char *src, char *dst, size_t cap) {
 }
 
 // 当前状态 + 当前配置（网页据此预填表单、判断太阳在不在画面里）
-static void handleState(void) {
+// 可选参数 lat / lon / t（epoch 秒）：网页预览用——按"表单里填的"时间地点现算，
+// 而不是设备当前状态；这样改时间/地点时预览会立刻跟着动。
+// a 传 nullptr 表示没有查询参数（HTTP / HTTPS 共用同一份逻辑）
+static void buildStateJson(const ReqArg *a, char *buf, size_t cap) {
+  double lat = g_cfg.lat, lon = g_cfg.lon;
+  double t   = g_timeSynced ? nowSec() : 0;
+  bool isPreview = false;
+  if (a) {
+    isPreview = a->has(a->ctx, "t") || a->has(a->ctx, "lat") || a->has(a->ctx, "lon");
+    double d = 0;
+    if (argDs(*a, "lat", &d)) lat = skyClampd(d, -90, 90);
+    if (argDs(*a, "lon", &d)) lon = skyClampd(d, -180, 180);
+    if (argDs(*a, "t", &d) && d > 1e9 && d < 4.1e9) t = d;
+  }
+
   double sunAlt = 0, sunAz = 0, moonAlt = 0, moonAz = 0, moonIllum = 0;
   int moonWaxing = 0;
-  if (g_timeSynced) {
-    const double jd = jdOf(nowSec());
-    const SkyPos sun = sunPosition(jd, g_cfg.lat, g_cfg.lon);
-    const SkyPos moon = moonAltAz(jd, g_cfg.lat, g_cfg.lon);
+  if (t > 1e9) {
+    const double jd = jdOf(t);
+    const SkyPos sun = sunPosition(jd, lat, lon);
+    const SkyPos moon = moonAltAz(jd, lat, lon);
     const MoonPhase ph = moonPhase(jd);
     sunAlt = sun.alt;
     sunAz = sun.az;
@@ -495,21 +569,29 @@ static void handleState(void) {
   jsonEscape(g_netCfg.ssid, ssid, sizeof(ssid));
   jsonEscape(g_netCfg.url, url, sizeof(url));
 
-  char buf[720];
-  snprintf(buf, sizeof(buf),
+  snprintf(buf, cap,
            "{\"synced\":%d,\"manual\":%d,\"now\":%.0f,\"fps\":%lu,\"heap\":%lu,\"stars\":%d,"
            "\"sunAlt\":%.2f,\"sunAz\":%.2f,\"moonAlt\":%.2f,\"moonAz\":%.2f,"
            "\"moonIllum\":%.3f,\"moonWaxing\":%d,"
            "\"lat\":%.6f,\"lon\":%.6f,\"camAz\":%.2f,\"baseAlt\":%.2f,\"fov\":%.2f,"
            "\"twinkle\":%.3f,\"ssid\":\"%s\",\"url\":\"%s\",\"tz\":%.2f,\"epoch\":%.0f,"
-           "\"ap\":%d,\"apClients\":%u}",
+           "\"ap\":%d,\"apClients\":%u,\"scrW\":%d,\"scrH\":%d,\"rot\":%d,"
+           "\"preview\":%d,\"at\":%.0f,\"plat\":%.6f,\"plon\":%.6f}",
            g_timeSynced ? 1 : 0, g_netCfg.manual ? 1 : 0,
            g_timeSynced ? nowSec() : 0.0,
            (unsigned long)g_fps, (unsigned long)ESP.getFreeHeap(), g_fs.nStars,
            sunAlt, sunAz, moonAlt, moonAz, moonIllum, moonWaxing,
            g_cfg.lat, g_cfg.lon, g_cfg.camAz, g_cfg.baseAlt, g_cfg.fov, g_cfg.twinkle,
            ssid, url, g_netCfg.tz, g_netCfg.epoch,
-           g_apMode ? 1 : 0, (unsigned)g_apClients);
+           g_apMode ? 1 : 0, (unsigned)g_apClients, skyScreenW(g_cfg.rot), skyScreenH(g_cfg.rot),
+           g_cfg.rot,
+           isPreview ? 1 : 0, t, lat, lon);
+}
+
+static void handleState(void) {
+  char buf[960];        // 留足余量：ssid/url 若有需转义字符，长度会接近翻倍
+  ReqArg ra = {&server, wsHas, wsGet};
+  buildStateJson(&ra, buf, sizeof(buf));
   server.send(200, "application/json; charset=utf-8", buf);
 }
 
@@ -596,12 +678,33 @@ static void refresh(void) {
                 g_fs.nStars, (unsigned long)(t1 - t0), (unsigned long)(t2 - t1));
 }
 
-// 合成一帧并推屏：缓存背景行 → 叠星
+// 面板色深：我们自己推天空时用 18 位（ST7789 COLMOD=0x66），
+// 库画状态页/文字时用 16 位（0x55）—— 两种数据的字节数不同，必须跟着切
+static bool g_colmod666 = false;
+static void setColmod(bool m666) {
+  if (m666 == g_colmod666) return;
+  bus->beginWrite();
+  bus->writeC8D8(0x3A, m666 ? 0x66 : 0x55);
+  bus->endWrite();
+  g_colmod666 = m666;
+}
+
+// 合成一帧并推屏：缓存背景行 → 叠星 → 18 位直推（每像素 3 字节）
 static void pushFrame(double tSec) {
   frameTwinkle(&g_fs, tSec, g_cfg.twinkle);
-  for (int y = 0; y < RENDER_RES; y++) {
-    renderFrameRow565(g_row565, y, &g_fs, g_sky);
-    gfx->draw16bitRGBBitmap(0, y, g_row565, RENDER_RES, 1);
+  setColmod(true);
+  for (int y = 0; y < g_fs.h; y++) {
+    renderFrameRow666(g_row666, y, &g_fs, g_sky);
+    bus->beginWrite();
+    bus->writeCommand(0x2A);                       // CASET：整行
+    bus->write16(0);
+    bus->write16((uint16_t)(g_fs.w - 1));
+    bus->writeCommand(0x2B);                       // RASET：本行
+    bus->write16((uint16_t)y);
+    bus->write16((uint16_t)y);
+    bus->writeCommand(0x2C);                       // RAMWR
+    bus->writeBytes(g_row666, (uint32_t)g_fs.w * 3);
+    bus->endWrite();
   }
 }
 
@@ -609,6 +712,8 @@ static void pushFrame(double tSec) {
 static void drawStatusScreen(void) {
   if (g_statusDrawn == g_statusRev) return;
   g_statusDrawn = g_statusRev;
+
+  setColmod(false);                                // 库的绘制走 16 位
 
   gfx->fillScreen(RGB565_BLACK);
 
@@ -696,22 +801,38 @@ static void reportPerf(uint32_t frameMs) {
   }
 }
 
+// 热切换方向：先改软件尺寸（内部会写一次 MADCTL），再让面板按新方向完整
+// 初始化一遍。只 setRotation 的话画面要等复位才转过来 —— 复位走的就是
+// 「完整初始化」这条路。注意必须在 begin() 之后调用（总线要先起来）。
+static void applyRotation(void) {
+  gfx->setRotation(g_cfg.rot);
+  gfx->begin(LCD_SPI_HZ);
+  g_colmod666 = false;                  // begin() 内部会把 COLMOD 写回 16 位
+  Serial.printf("[sky] 屏幕方向 → %d（%dx%d）\n", g_cfg.rot, gfx->width(), gfx->height());
+}
+
 // ===========================================================================
 void setup() {
   Serial.begin(115200);
   delay(300);
   Serial.println("[sky] boot");
+  Serial.printf("[mem] 内部堆 %lu KB，PSRAM %lu KB（可用 %lu KB）\n",
+                (unsigned long)(ESP.getFreeHeap() / 1024),
+                (unsigned long)(ESP.getPsramSize() / 1024),
+                (unsigned long)(ESP.getFreePsram() / 1024));
 
   ledcAttach(PIN_BK_LIGHT, 1000, 10);
   ledcWrite(PIN_BK_LIGHT, 1000);
 
   pinMode(PIN_BTN_BOOT, INPUT_PULLUP);
 
+  // 注意顺序：begin() 先把总线/面板初始化好，setRotation() 才能在总线上写 MADCTL
   const bool ok = gfx->begin(LCD_SPI_HZ);
-  Serial.printf("[sky] gfx->begin = %d (%dx%d)\n", ok, gfx->width(), gfx->height());
-
   astroInit();
   configLoad();                         // NVS 有就用 NVS，没有就用 config.h
+  gfx->setRotation(g_cfg.rot);
+  Serial.printf("[sky] gfx->begin = %d，屏幕方向 %d → %dx%d\n",
+                ok, g_cfg.rot, gfx->width(), gfx->height());
 
   const uint32_t tInit = millis();
   renderInit(&g_cfg);
