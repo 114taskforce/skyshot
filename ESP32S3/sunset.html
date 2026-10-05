@@ -1,0 +1,1690 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>240×240 天空模拟器 · 星空 · 月相</title>
+<style>
+  :root{
+    --panel-bg: rgba(14,19,34,.62);
+    --border: rgba(255,255,255,.14);
+    --txt: #e9eefb;
+    --sub: #9fb0cf;
+    --accent: #63b3ff;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;height:100%;overflow:hidden;
+    background:radial-gradient(ellipse at 65% 45%, #14192b 0%, #07080d 70%);
+    font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--txt);
+  }
+  .app{display:flex;height:100vh;}
+
+  .panel{
+    width:334px;flex-shrink:0;height:100%;overflow-y:auto;
+    padding:16px 15px 22px;
+    background:var(--panel-bg);
+    backdrop-filter:blur(20px) saturate(160%);
+    -webkit-backdrop-filter:blur(20px) saturate(160%);
+    border-right:1px solid var(--border);
+    font-size:13px;line-height:1.5;
+    scrollbar-width:thin;
+  }
+  .panel::-webkit-scrollbar{width:6px}
+  .panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:3px}
+
+  h1{margin:0 0 3px;font-size:15px;font-weight:600;letter-spacing:.5px;}
+  .subtitle{margin:0 0 14px;font-size:10.5px;color:var(--sub);letter-spacing:.3px;}
+
+  .field{margin-bottom:10px;}
+  .field > label{display:block;font-size:11px;color:var(--sub);margin-bottom:4px;letter-spacing:.3px;}
+
+  input[type=datetime-local],input[type=number]{
+    width:100%;padding:7px 9px;border-radius:9px;border:1px solid var(--border);
+    background:rgba(255,255,255,.07);color:var(--txt);font-size:12.5px;
+    font-family:inherit;outline:none;transition:.15s;
+  }
+  input[type=datetime-local]:focus,input[type=number]:focus{
+    border-color:var(--accent);background:rgba(255,255,255,.13);
+  }
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  input[type=number]{-moz-appearance:textfield;}
+
+  .row{display:flex;gap:8px;}
+  .row .field{flex:1;min-width:0;}
+
+  .dms{display:flex;align-items:center;gap:4px;}
+  .dms input[type=number]{flex:1 1 0;min-width:0;padding:7px 4px;text-align:center;
+    font-variant-numeric:tabular-nums;}
+  .dms .u{font-size:12px;color:var(--sub);flex:0 0 auto;}
+  .dms .hemi{
+    flex:0 0 38px;width:38px;padding:7px 0;
+    font-size:11.5px;font-weight:600;letter-spacing:.5px;color:#fff;
+  }
+
+  .play-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .play-btn{
+    flex:0 0 92px;width:92px;padding:8px 0;
+    font-size:12.5px;font-weight:600;
+    background:rgba(99,179,255,.16);
+    border-color:rgba(99,179,255,.45);
+    color:#fff;
+  }
+  .play-btn:hover{background:rgba(99,179,255,.3);}
+  .play-btn.on{
+    background:rgba(99,179,255,.45);
+    border-color:rgba(99,179,255,.85);
+    box-shadow:0 0 14px rgba(99,179,255,.35);
+  }
+  .play-row .field{flex:1;min-width:0;margin-bottom:0;}
+
+  .sun-times{display:flex;gap:8px;margin-bottom:10px;}
+  .sun-time{
+    flex:1;display:flex;flex-direction:column;gap:2px;
+    padding:8px 10px;border-radius:10px;
+    background:rgba(255,255,255,.05);
+    border:1px solid var(--border);
+    cursor:pointer;transition:.15s;
+  }
+  .sun-time:hover{
+    background:rgba(99,179,255,.14);
+    border-color:rgba(99,179,255,.5);
+  }
+  .sun-time .st-label{
+    font-size:10px;color:var(--sub);letter-spacing:.4px;
+    display:flex;align-items:center;gap:4px;
+  }
+  .sun-time .st-value{
+    font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;
+    color:#fff;
+  }
+  .sun-time.set .st-label{color:#ffb080;}
+  .sun-time.rise .st-label{color:#ffd580;}
+
+  .moon-card{
+    padding:10px 12px;border-radius:12px;
+    background:rgba(255,255,255,.05);
+    border:1px solid var(--border);
+    margin-bottom:10px;
+  }
+  .moon-top{
+    display:flex;align-items:center;gap:12px;margin-bottom:8px;
+  }
+  .moon-canvas-wrap{
+    width:52px;height:52px;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;
+  }
+  #moonIcon{display:block;}
+  .moon-info{flex:1;min-width:0;}
+  .moon-name{
+    font-size:13.5px;font-weight:600;color:#fff;
+    margin-bottom:2px;
+  }
+  .moon-detail{
+    font-size:11px;color:var(--sub);
+    font-variant-numeric:tabular-nums;
+  }
+  .moon-times{
+    display:flex;gap:8px;
+  }
+  .moon-time{
+    flex:1;display:flex;align-items:center;gap:5px;
+    padding:5px 9px;border-radius:8px;
+    background:rgba(255,255,255,.04);
+    border:1px solid var(--border);
+    cursor:pointer;transition:.15s;
+    font-size:11px;
+  }
+  .moon-time:hover{
+    background:rgba(99,179,255,.14);
+    border-color:rgba(99,179,255,.5);
+  }
+  .moon-time .mt-label{color:var(--sub);font-size:10px;}
+  .moon-time .mt-value{
+    color:#fff;font-weight:600;font-variant-numeric:tabular-nums;
+    font-size:12.5px;margin-left:auto;
+  }
+
+  .slider-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;}
+  .slider-head span:first-child{font-size:11px;color:var(--sub);}
+  .slider-head span:last-child{font-size:12px;font-variant-numeric:tabular-nums;color:#fff;}
+
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:22px;
+    background:transparent;outline:none;margin:0;
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:4px;border-radius:2px;background:rgba(255,255,255,.2);
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:#fff;
+    margin-top:-5.5px;box-shadow:0 1px 5px rgba(0,0,0,.5);cursor:pointer;transition:transform .15s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.15);}
+  input[type=range]::-moz-range-track{height:4px;border-radius:2px;background:rgba(255,255,255,.2);}
+  input[type=range]::-moz-range-thumb{
+    width:15px;height:15px;border:none;border-radius:50%;background:#fff;cursor:pointer;
+  }
+
+  button{
+    width:100%;padding:8px;border-radius:10px;border:1px solid var(--border);
+    background:rgba(255,255,255,.09);color:var(--txt);font-size:12.5px;
+    font-family:inherit;cursor:pointer;transition:.15s;
+  }
+  button:hover{background:rgba(255,255,255,.18);}
+  button:active{transform:scale(.985);}
+
+  .divider{height:1px;background:var(--border);margin:13px 0 12px;}
+
+  .stage{
+    flex:1;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    padding:20px;gap:16px;min-width:0;
+  }
+  .sky-wrap{
+    position:relative;line-height:0;
+    border-radius:14px;
+    filter:drop-shadow(0 0 60px rgba(80,140,220,.20));
+  }
+  canvas#sky{
+    display:block;border-radius:14px;
+    image-rendering:auto;
+  }
+
+  .res-tag{
+    position:absolute;top:10px;right:10px;
+    padding:4px 9px;border-radius:7px;
+    font-size:10px;font-weight:600;letter-spacing:.5px;
+    background:rgba(0,0,0,.45);
+    backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px);
+    border:1px solid rgba(255,255,255,.14);
+    color:#fff;
+    pointer-events:none;
+    font-variant-numeric:tabular-nums;
+  }
+
+  .sky-info{
+    display:flex;gap:18px;flex-wrap:wrap;justify-content:center;
+    padding:10px 20px;border-radius:14px;
+    background:var(--panel-bg);
+    backdrop-filter:blur(18px) saturate(160%);
+    -webkit-backdrop-filter:blur(18px) saturate(160%);
+    border:1px solid var(--border);
+    font-size:12px;font-variant-numeric:tabular-nums;
+    box-shadow:0 8px 30px rgba(0,0,0,.35);
+  }
+  .sky-info b{display:block;font-size:10px;color:var(--sub);font-weight:500;
+    letter-spacing:.4px;margin-bottom:1px;}
+  .sky-info .v{font-size:13.5px;font-weight:600;}
+
+  @media (max-width:820px){
+    .app{flex-direction:column;}
+    .panel{width:100%;height:auto;max-height:46vh;border-right:none;
+      border-bottom:1px solid var(--border);}
+    .stage{padding:14px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <aside class="panel">
+    <h1>🌙 240×240 天空模拟</h1>
+    <p class="subtitle">时间 · 位置 · 视角 · 真实星图 · 月相</p>
+
+    <div class="field">
+      <label>时间（当地时间）</label>
+      <input type="datetime-local" id="dt">
+    </div>
+
+    <div class="play-row">
+      <button class="play-btn" id="play">▶ 播放</button>
+      <div class="field">
+        <div class="slider-head"><span>播放速度</span><span id="spdV">1小时/秒</span></div>
+        <input type="range" id="spd" min="0" max="6" step="1" value="4">
+      </div>
+    </div>
+
+    <div class="sun-times">
+      <div class="sun-time rise" id="riseBox">
+        <div class="st-label">🌅 日出</div>
+        <div class="st-value" id="hRise">--:--</div>
+      </div>
+      <div class="sun-time set" id="setBox">
+        <div class="st-label">🌇 日落</div>
+        <div class="st-value" id="hSet">--:--</div>
+      </div>
+    </div>
+
+    <div class="moon-card">
+      <div class="moon-top">
+        <div class="moon-canvas-wrap">
+          <canvas id="moonIcon" width="104" height="104" style="width:52px;height:52px;"></canvas>
+        </div>
+        <div class="moon-info">
+          <div class="moon-name" id="moonName">--</div>
+          <div class="moon-detail" id="moonDetail">照亮 --% · 高度 --</div>
+        </div>
+      </div>
+      <div class="moon-times">
+        <div class="moon-time" id="moonRiseBox">
+          <span class="mt-label">🌙 月出</span>
+          <span class="mt-value" id="hMoonRise">--:--</span>
+        </div>
+        <div class="moon-time" id="moonSetBox">
+          <span class="mt-label">🌑 月落</span>
+          <span class="mt-value" id="hMoonSet">--:--</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>时区 UTC±</label>
+      <input type="number" id="tz" step="0.5" min="-12" max="14">
+    </div>
+
+    <div class="field">
+      <label>纬度（度分秒）</label>
+      <div class="dms">
+        <input type="number" id="latD" min="0" max="90" step="1" value="39">
+        <span class="u">°</span>
+        <input type="number" id="latM" min="0" max="59" step="1" value="54">
+        <span class="u">′</span>
+        <input type="number" id="latS" min="0" max="59" step="1" value="0">
+        <span class="u">″</span>
+        <button class="hemi" id="latH" type="button">N</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>经度（度分秒）</label>
+      <div class="dms">
+        <input type="number" id="lonD" min="0" max="180" step="1" value="116">
+        <span class="u">°</span>
+        <input type="number" id="lonM" min="0" max="59" step="1" value="24">
+        <span class="u">′</span>
+        <input type="number" id="lonS" min="0" max="59" step="1" value="0">
+        <span class="u">″</span>
+        <button class="hemi" id="lonH" type="button">E</button>
+      </div>
+    </div>
+
+    <button id="geo" style="margin-bottom:0;">📍 使用我的位置</button>
+
+    <div class="divider"></div>
+
+    <div class="field">
+      <div class="slider-head"><span>面对方向（方位角）</span><span id="azV">180° 南</span></div>
+      <input type="range" id="az" min="0" max="360" value="180">
+    </div>
+    <div class="field">
+      <div class="slider-head"><span>底边高度角</span><span id="piV">0°</span></div>
+      <input type="range" id="pi" min="0" max="56" value="0">
+    </div>
+    <div class="field">
+      <div class="slider-head"><span>天空范围</span><span id="fvV">68°</span></div>
+      <input type="range" id="fv" min="30" max="120" value="68">
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="field" style="margin-bottom:0;">
+      <div class="slider-head"><span>星星闪烁强度</span><span id="twV">中</span></div>
+      <input type="range" id="tw" min="0" max="100" value="55">
+    </div>
+  </aside>
+
+  <main class="stage">
+    <div class="sky-wrap" id="skyWrap">
+      <canvas id="sky"></canvas>
+      <div class="res-tag" id="resTag">240 × 240</div>
+    </div>
+
+    <div class="sky-info">
+      <div><b>太阳高度角</b><span class="v" id="hAlt">--</span></div>
+      <div><b>太阳方位角</b><span class="v" id="hAz">--</span></div>
+      <div><b>时段</b><span class="v" id="hState">--</span></div>
+      <div><b>可见恒星</b><span class="v" id="hStars">--</span></div>
+      <div><b>月亮</b><span class="v" id="hMoon">--</span></div>
+    </div>
+  </main>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const RAD = Math.PI / 180;
+  const DEG = 180 / Math.PI;
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+  const lerp  = (a, b, t) => a + (b - a) * t;
+
+  // 天体真实角半径（度）× 统一放大 2 倍，便于观察。
+  // 真实角直径：太阳 0.533°、月亮 0.518°（所以两者看起来几乎一样大）
+  const SUN_ANG_RAD  = 0.2665 * 2;
+  const MOON_ANG_RAD = 0.2590 * 2;
+
+  // 目标屏 240×240：圆盘最小半径（以 240 画面为单位的像素）。
+  // 视场拉到 90° 以上时按角度算出来的圆盘不足 1px，这里兜底保证仍能辨认
+  const MIN_BODY_RAD_PX = 2.5;
+
+  const smoothstep = (a, b, x) => {
+    const t = clamp((x - a) / (b - a), 0, 1);
+    return t * t * (3 - 2 * t);
+  };
+  const cosEase = t => 0.5 - 0.5 * Math.cos(t * Math.PI);
+
+  /* ============================================================
+     0. 单值 hash
+     ============================================================ */
+  function hash1(x) {
+    let n = Math.sin(x * 12.9898) * 43758.5453;
+    return n - Math.floor(n);
+  }
+
+  /* ============================================================
+     1. 太阳位置
+     ============================================================ */
+  function sunPosition(dateUTC, lat, lon) {
+    const jd = dateUTC.getTime() / 86400000 + 2440587.5;
+    const n  = jd - 2451545.0;
+
+    const L   = 280.460 + 0.9856474 * n;
+    const g   = (357.528 + 0.9856003 * n) * RAD;
+    const lam = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * RAD;
+    const eps = (23.439 - 0.0000004 * n) * RAD;
+
+    const alpha = Math.atan2(Math.cos(eps) * Math.sin(lam), Math.cos(lam));
+    const delta = Math.asin(clamp(Math.sin(eps) * Math.sin(lam), -1, 1));
+
+    const gmst = (280.46061837 + 360.98564736629 * n) * RAD;
+    const H    = gmst + lon * RAD - alpha;
+    const phi  = lat * RAD;
+
+    const sinAlt = Math.sin(phi) * Math.sin(delta) +
+                   Math.cos(phi) * Math.cos(delta) * Math.cos(H);
+    const alt = Math.asin(clamp(sinAlt, -1, 1)) * DEG;
+
+    const az = Math.atan2(
+      -Math.cos(delta) * Math.sin(H),
+      Math.cos(phi) * Math.sin(delta) - Math.sin(phi) * Math.cos(delta) * Math.cos(H)
+    ) * DEG;
+
+    return { alt, az: (az + 360) % 360 };
+  }
+
+  /* ============================================================
+     2. 太阳黄经
+     ============================================================ */
+  function sunEclipticLon(dateUTC) {
+    const jd = dateUTC.getTime() / 86400000 + 2440587.5;
+    const n = jd - 2451545.0;
+    const L = 280.460 + 0.9856474 * n;
+    const g = (357.528 + 0.9856003 * n) * RAD;
+    const lambda = L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g);
+    return ((lambda % 360) + 360) % 360;
+  }
+
+  /* ============================================================
+     3. 月亮位置（Meeus 简化算法）
+     ============================================================ */
+  function moonPosition(dateUTC) {
+    const jd = dateUTC.getTime() / 86400000 + 2440587.5;
+    const T = (jd - 2451545.0) / 36525;
+
+    const Lp = 218.3164477 + 481267.88123421 * T - 0.0015786 * T * T;
+    const D  = 297.8501921 + 445267.1114034  * T - 0.0018819 * T * T;
+    const M  = 357.5291092 +  35999.0502909  * T - 0.0001536 * T * T;
+    const Mp = 134.9633964 + 477198.8675055  * T + 0.0087414 * T * T;
+    const F  =  93.2720950 + 483202.0175233  * T - 0.0036539 * T * T;
+
+    const Dr = D * RAD, Mr = M * RAD, Mpr = Mp * RAD, Fr = F * RAD;
+
+    const dL = 6.289 * Math.sin(Mpr)
+             + 1.274 * Math.sin(2 * Dr - Mpr)
+             + 0.658 * Math.sin(2 * Dr)
+             + 0.214 * Math.sin(2 * Mpr)
+             - 0.186 * Math.sin(Mr)
+             - 0.114 * Math.sin(2 * Fr)
+             + 0.059 * Math.sin(2 * Dr - 2 * Mpr)
+             + 0.057 * Math.sin(2 * Dr - Mr - Mpr)
+             + 0.053 * Math.sin(2 * Dr + Mpr)
+             + 0.046 * Math.sin(2 * Dr - Mr + Mpr)
+             + 0.041 * Math.sin(Mpr - Mr)
+             - 0.035 * Math.sin(Dr)
+             - 0.031 * Math.sin(Mpr + Mr);
+
+    const dB = 5.128 * Math.sin(Fr)
+             + 0.281 * Math.sin(Mpr + Fr)
+             + 0.278 * Math.sin(Mpr - Fr)
+             + 0.173 * Math.sin(2 * Dr - Fr)
+             + 0.055 * Math.sin(2 * Dr + Fr - Mpr)
+             + 0.046 * Math.sin(2 * Dr - Fr - Mpr)
+             + 0.033 * Math.sin(2 * Dr + Fr)
+             + 0.017 * Math.sin(2 * Mpr + Fr);
+
+    const dist = 385000
+               - 20905 * Math.cos(Mpr)
+               - 3699  * Math.cos(2 * Dr - Mpr)
+               - 2956  * Math.cos(2 * Dr)
+               - 569   * Math.cos(2 * Mpr);
+
+    const lambda = ((Lp + dL) % 360 + 360) % 360;
+    const beta   = dB;
+
+    const eps = (23.4392911 - 0.0130042 * T) * RAD;
+    const lambdaR = lambda * RAD;
+    const betaR   = beta   * RAD;
+
+    const sinDec = Math.sin(betaR) * Math.cos(eps) +
+                   Math.cos(betaR) * Math.sin(eps) * Math.sin(lambdaR);
+    const dec = Math.asin(clamp(sinDec, -1, 1)) * DEG;
+
+    const ra = Math.atan2(
+      Math.sin(lambdaR) * Math.cos(eps) - Math.tan(betaR) * Math.sin(eps),
+      Math.cos(lambdaR)
+    ) * DEG;
+
+    return {
+      ra: ((ra % 360) + 360) % 360 / 15,
+      dec,
+      lambda,
+      beta,
+      distance: dist
+    };
+  }
+
+  /* ============================================================
+     4. 月相
+     ============================================================ */
+  function moonPhase(dateUTC) {
+    const mp = moonPosition(dateUTC);
+    const sl = sunEclipticLon(dateUTC);
+    const phaseAngle = ((mp.lambda - sl) % 360 + 360) % 360;
+    const illumination = (1 - Math.cos(phaseAngle * RAD)) / 2;
+    const waxing = phaseAngle < 180;
+
+    let name;
+    const pa = phaseAngle;
+    if (pa < 22.5 || pa >= 337.5) name = '新月';
+    else if (pa < 67.5)  name = '蛾眉月';
+    else if (pa < 112.5) name = '上弦月';
+    else if (pa < 157.5) name = '盈凸月';
+    else if (pa < 202.5) name = '满月';
+    else if (pa < 247.5) name = '亏凸月';
+    else if (pa < 292.5) name = '下弦月';
+    else                 name = '残月';
+
+    return { illumination, waxing, phaseAngle, name };
+  }
+
+  /* ============================================================
+     5. 赤道 → 地平
+     ============================================================ */
+  function gmstDeg(jd) {
+    let g = 280.46061837 + 360.98564736629 * (jd - 2451545.0);
+    return ((g % 360) + 360) % 360;
+  }
+
+  function equatorialToAltAz(ra_h, dec_deg, lat_deg, lon_deg, jd) {
+    const lst = (gmstDeg(jd) + lon_deg) * RAD;
+    const ra  = ra_h * 15 * RAD;
+    const dec = dec_deg * RAD;
+    const lat = lat_deg * RAD;
+
+    const H = lst - ra;
+
+    const sinAlt = Math.sin(lat) * Math.sin(dec) +
+                   Math.cos(lat) * Math.cos(dec) * Math.cos(H);
+    const sAlt = clamp(sinAlt, -1, 1);
+    const alt = Math.asin(sAlt) * DEG;
+
+    const cosAlt = Math.max(Math.sqrt(Math.max(1 - sAlt * sAlt, 0)), 1e-6);
+    const cosLat = Math.max(Math.cos(lat), 1e-6);
+
+    const sinAz = -Math.cos(dec) * Math.sin(H) / cosAlt;
+    const cosAz = (Math.sin(dec) - Math.sin(lat) * sAlt) / (cosLat * cosAlt);
+    const az = Math.atan2(sinAz, cosAz) * DEG;
+
+    return { alt, az: ((az % 360) + 360) % 360 };
+  }
+
+  const starAltAz = (ra, dec, lat, lon, jd) => equatorialToAltAz(ra, dec, lat, lon, jd);
+
+  // 月亮地平坐标（考虑视差）
+  function moonAltAz(dateUTC, lat, lon) {
+    const mp = moonPosition(dateUTC);
+    const jd = dateUTC.getTime() / 86400000 + 2440587.5;
+    const pos = equatorialToAltAz(mp.ra, mp.dec, lat, lon, jd);
+
+    // 月球视差修正
+    const parallax = Math.asin(6378 / mp.distance) * DEG;
+    pos.alt -= parallax * Math.cos(pos.alt * RAD);
+
+    return pos;
+  }
+
+  /* ============================================================
+     6. 星表（82 颗亮星，Vmag < 3.0）
+     ============================================================ */
+  const STARS = [
+    [6.752, -16.716, -1.46,  0.00], [6.399, -52.696, -0.74,  0.15],
+    [14.660, -60.835, -0.27, 0.71], [14.261,  19.182, -0.05, 1.23],
+    [18.615,  38.784,  0.03, 0.00], [5.278,   45.998,  0.08, 0.80],
+    [5.242,   -8.202,  0.12, -0.03],[7.655,    5.225,  0.34, 0.42],
+    [1.629,  -57.237,  0.46, -0.16],[5.919,    7.407,  0.50, 1.85],
+    [14.064, -60.373,  0.61, -0.23],[19.846,   8.868,  0.77, 0.22],
+    [12.443, -63.099,  0.77, -0.24],[4.599,   16.509,  0.85, 1.54],
+    [16.490, -26.432,  0.96, 1.83], [13.420, -11.161,  0.98, -0.23],
+    [7.755,   28.026,  1.14, 1.00], [22.961, -29.622,  1.16, 0.09],
+    [20.690,  45.280,  1.25, 0.09], [12.795, -59.689,  1.25, -0.24],
+    [10.139,  11.967,  1.36, -0.11],[6.977,  -28.972,  1.50, -0.21],
+    [7.577,   31.888,  1.58, 0.03], [12.519, -57.113,  1.59, 1.59],
+    [17.560, -37.104,  1.62, -0.23],[5.418,    6.350,  1.64, -0.22],
+    [5.438,   28.608,  1.65, 1.65], [9.220,  -69.717,  1.67, 0.00],
+    [5.604,   -1.202,  1.69, -0.18],[22.137, -46.961,  1.74, -0.13],
+    [5.679,   -1.943,  1.74, -0.21],[12.900,  55.960,  1.77, -0.02],
+    [11.062,  61.751,  1.79, 1.07], [3.405,   49.861,  1.79, 0.48],
+    [7.140,  -26.393,  1.83, 0.67], [18.403, -34.385,  1.85, -0.03],
+    [8.375,  -59.510,  1.86, 1.28], [13.792,  49.313,  1.86, -0.19],
+    [5.992,   44.948,  1.90, 0.08], [16.811, -69.028,  1.92, 1.44],
+    [6.629,   16.399,  1.93, 0.00], [20.427, -56.735,  1.94, -0.12],
+    [8.745,  -54.709,  1.96, 0.04], [6.378,  -17.956,  1.98, -0.24],
+    [9.460,   -8.659,  1.98, 1.44], [2.530,   89.264,  1.98, 0.60],
+    [2.120,   23.462,  2.00, 1.15], [0.726,  -17.987,  2.04, 1.02],
+    [13.399,  54.925,  2.04, 0.02], [18.921, -26.297,  2.05, -0.20],
+    [14.111, -36.370,  2.06, 1.01], [0.140,   29.091,  2.06, -0.04],
+    [1.162,   35.620,  2.06, 1.57], [5.796,   -9.670,  2.06, -0.17],
+    [14.845,  74.156,  2.08, 1.47], [17.582,  12.560,  2.08, 0.15],
+    [3.136,   40.956,  2.12, -0.05],[11.818,  14.572,  2.14, 0.09],
+    [9.285,  -59.275,  2.21, 0.18], [15.578,  26.715,  2.22, -0.02],
+    [9.133,  -43.433,  2.23, 1.66], [5.533,   -0.299,  2.23, -0.22],
+    [20.370,  40.257,  2.23, 0.68], [17.943,  51.489,  2.23, 1.52],
+    [0.675,   56.537,  2.24, 1.17], [8.060,  -40.003,  2.25, -0.27],
+    [2.065,   42.330,  2.26, 1.37], [16.836, -34.293,  2.29, 1.15],
+    [12.692, -48.960,  2.20, -0.01],[17.622, -42.998,  2.41, -0.22],
+    [7.402,  -29.303,  2.45, 0.18], [5.545,  -17.822,  2.58, 1.17],
+    [15.283,  -9.383,  2.61, 1.58], [16.005, -22.622,  2.43, 1.14],
+    [16.091, -19.805,  2.62, 0.16], [10.716, -64.394,  2.47, -0.24],
+    [0.140,  -42.121,  2.40, 0.07], [3.791,   24.105,  2.85, -0.09],
+    [6.732,   25.131,  2.98, 1.43], [6.383,   22.514,  2.87, 1.62],
+    [5.470,  -20.760,  2.84, -0.18],[7.453,    8.289,  2.89, -0.09],
+    [18.982,  32.690,  2.99, 0.94],
+  ];
+
+  const STAR_TWINKLE = STARS.map((s, i) => {
+    const h1 = hash1(i + 0.137);
+    const h2 = hash1(i * 2.71 + 1.37);
+    const h3 = hash1(i * 5.43 + 7.77);
+    return {
+      phase: h1 * Math.PI * 2,
+      freq:  0.65 + h2 * 2.05,
+      depth: 0.18 + h3 * 0.42,
+    };
+  });
+
+  function magToIntensity(mag) {
+    const flux = Math.pow(2.512, -mag);
+    return clamp(Math.pow(flux, 0.45), 0, 1);
+  }
+
+  function bvToColor(bv) {
+    let r, g, b;
+    if (bv < 0.0) {
+      const t = clamp((bv + 0.4) / 0.4, 0, 1);
+      r = lerp(155, 200, t); g = lerp(180, 215, t); b = 255;
+    } else if (bv < 0.65) {
+      const t = bv / 0.65;
+      r = lerp(200, 255, t); g = lerp(215, 250, t); b = lerp(255, 245, t);
+    } else if (bv < 1.5) {
+      const t = (bv - 0.65) / 0.85;
+      r = 255; g = lerp(250, 210, t); b = lerp(245, 165, t);
+    } else {
+      const t = clamp((bv - 1.5) / 0.8, 0, 1);
+      r = 255; g = lerp(210, 180, t); b = lerp(165, 130, t);
+    }
+    return [r, g, b];
+  }
+
+  /* ============================================================
+     7. 天空配色
+     ============================================================ */
+  const SKY_KEYS = [
+    { a:  90, z: [ 28,  84, 168], h: [128, 186, 232] },
+    { a:  60, z: [ 34,  92, 176], h: [136, 190, 234] },
+    { a:  30, z: [ 42, 100, 182], h: [148, 194, 234] },
+    { a:  15, z: [ 52, 106, 184], h: [166, 200, 230] },
+    { a:   8, z: [ 58, 106, 178], h: [196, 198, 214] },
+    { a:   4, z: [ 56,  94, 158], h: [226, 184, 168] },
+    { a:   1, z: [ 46,  72, 130], h: [244, 156, 116] },
+    { a:  -1, z: [ 34,  52, 102], h: [240, 122,  88] },
+    { a:  -4, z: [ 22,  34,  76], h: [212,  88,  82] },
+    { a:  -7, z: [ 12,  19,  50], h: [152,  60,  78] },
+    { a: -11, z: [  5,   9,  28], h: [ 92,  44,  72] },
+    { a: -15, z: [  2,   4,  14], h: [ 46,  28,  58] },
+    { a: -18, z: [  1,   2,   8], h: [ 22,  18,  40] },
+    { a: -90, z: [  0,   1,   4], h: [  6,   7,  18] }
+  ];
+
+  const H_OPP = [
+    { a:  90, c: [120, 178, 232] },
+    { a:  60, c: [116, 174, 230] },
+    { a:  30, c: [112, 168, 228] },
+    { a:  15, c: [106, 160, 224] },
+    { a:   8, c: [ 96, 146, 216] },
+    { a:   4, c: [ 82, 126, 202] },
+    { a:   1, c: [ 68, 104, 178] },
+    { a:  -1, c: [ 54,  80, 146] },
+    { a:  -4, c: [ 34,  52, 104] },
+    { a:  -7, c: [ 18,  28,  66] },
+    { a: -11, c: [  8,  13,  36] },
+    { a: -15, c: [  3,   6,  18] },
+    { a: -18, c: [  1,   2,   9] },
+    { a: -90, c: [  0,   1,   4] }
+  ];
+
+  function skyColors(alt) {
+    if (alt >= SKY_KEYS[0].a) return { z: SKY_KEYS[0].z, h: SKY_KEYS[0].h };
+    for (let i = 0; i < SKY_KEYS.length - 1; i++) {
+      const A = SKY_KEYS[i], B = SKY_KEYS[i + 1];
+      if (alt <= A.a && alt >= B.a) {
+        const tRaw = (A.a - alt) / (A.a - B.a);
+        const t = cosEase(tRaw);
+        return {
+          z: [lerp(A.z[0], B.z[0], t), lerp(A.z[1], B.z[1], t), lerp(A.z[2], B.z[2], t)],
+          h: [lerp(A.h[0], B.h[0], t), lerp(A.h[1], B.h[1], t), lerp(A.h[2], B.h[2], t)]
+        };
+      }
+    }
+    const last = SKY_KEYS[SKY_KEYS.length - 1];
+    return { z: last.z, h: last.h };
+  }
+
+  function lerpColorKeys(keys, alt) {
+    if (alt >= keys[0].a) return keys[0].c;
+    for (let i = 0; i < keys.length - 1; i++) {
+      const A = keys[i], B = keys[i + 1];
+      if (alt <= A.a && alt >= B.a) {
+        const tRaw = (A.a - alt) / (A.a - B.a);
+        const t = cosEase(tRaw);
+        return [
+          lerp(A.c[0], B.c[0], t),
+          lerp(A.c[1], B.c[1], t),
+          lerp(A.c[2], B.c[2], t)
+        ];
+      }
+    }
+    return keys[keys.length - 1].c;
+  }
+
+  /* ============================================================
+     8. 日出日落
+     ============================================================ */
+  const SUN_HORIZON = -0.83;
+
+  function findSunTimes(dateUTC, lat, lon, tzOffsetHours) {
+    const localMs = dateUTC.getTime() + tzOffsetHours * 3600000;
+    const localDate = new Date(localMs);
+    const local0hUTC = Date.UTC(
+      localDate.getUTCFullYear(), localDate.getUTCMonth(), localDate.getUTCDate(),
+      0, 0, 0
+    ) - tzOffsetHours * 3600000;
+
+    const altAt = ms => sunPosition(new Date(ms), lat, lon).alt;
+
+    function bisect(t0, t1) {
+      let a0 = altAt(t0);
+      for (let i = 0; i < 40; i++) {
+        const tm = (t0 + t1) / 2;
+        const am = altAt(tm);
+        if ((a0 < SUN_HORIZON) === (am < SUN_HORIZON)) { t0 = tm; a0 = am; }
+        else { t1 = tm; }
+      }
+      return (t0 + t1) / 2;
+    }
+
+    const noonUTC   = local0hUTC + 12 * 3600000;
+    const dayEndUTC = local0hUTC + 24 * 3600000;
+
+    const a0 = altAt(local0hUTC), a12 = altAt(noonUTC), a24 = altAt(dayEndUTC);
+
+    let tRise = null, tSet = null;
+    if (a0 < SUN_HORIZON && a12 > SUN_HORIZON) tRise = bisect(local0hUTC, noonUTC);
+    if (a12 > SUN_HORIZON && a24 < SUN_HORIZON) tSet = bisect(noonUTC, dayEndUTC);
+
+    let polar = null;
+    if (tRise == null && tSet == null) polar = a12 > SUN_HORIZON ? 'day' : 'night';
+
+    return { tRise, tSet, polar };
+  }
+
+  /* ============================================================
+     8.1 月亮升起/落下时间
+     ============================================================ */
+  const MOON_HORIZON = -0.8;
+
+  function findMoonTimes(dateUTC, lat, lon, tzOffsetHours) {
+    const localMs = dateUTC.getTime() + tzOffsetHours * 3600000;
+    const localDate = new Date(localMs);
+    const local0hUTC = Date.UTC(
+      localDate.getUTCFullYear(), localDate.getUTCMonth(), localDate.getUTCDate(),
+      0, 0, 0
+    ) - tzOffsetHours * 3600000;
+
+    const altAt = ms => moonAltAz(new Date(ms), lat, lon).alt;
+
+    function bisectUp(t0, t1) {
+      for (let i = 0; i < 30; i++) {
+        const tm = (t0 + t1) / 2;
+        if (altAt(tm) < MOON_HORIZON) t0 = tm;
+        else t1 = tm;
+      }
+      return (t0 + t1) / 2;
+    }
+
+    function bisectDown(t0, t1) {
+      for (let i = 0; i < 30; i++) {
+        const tm = (t0 + t1) / 2;
+        if (altAt(tm) >= MOON_HORIZON) t0 = tm;
+        else t1 = tm;
+      }
+      return (t0 + t1) / 2;
+    }
+
+    const samples = 96;
+    const dt = 24 * 3600000 / samples;
+    let prevAlt = altAt(local0hUTC);
+    let tRise = null, tSet = null;
+
+    for (let i = 1; i <= samples; i++) {
+      const t = local0hUTC + i * dt;
+      const curAlt = altAt(t);
+
+      if (prevAlt < MOON_HORIZON && curAlt >= MOON_HORIZON && tRise == null) {
+        tRise = bisectUp(t - dt, t);
+      }
+      if (prevAlt >= MOON_HORIZON && curAlt < MOON_HORIZON && tSet == null) {
+        tSet = bisectDown(t - dt, t);
+      }
+
+      prevAlt = curAlt;
+    }
+
+    return { tRise, tSet };
+  }
+
+  function fmtTime(ms, tzOffsetHours) {
+    if (ms == null) return '--:--';
+    const d = new Date(ms + tzOffsetHours * 3600000);
+    return String(d.getUTCHours()).padStart(2, '0') + ':' +
+           String(d.getUTCMinutes()).padStart(2, '0');
+  }
+
+  let sunTimesCache = { key: '', rise: null, set: null, polar: null };
+  let moonTimesCache = { key: '', rise: null, set: null };
+
+  function getSunTimes() {
+    const tz = parseFloat(el('tz').value) || 0;
+    const localMs = S.dateUTC.getTime() + tz * 3600000;
+    const d = new Date(localMs);
+    const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}|${tz}|${S.lat.toFixed(3)}|${S.lon.toFixed(3)}`;
+
+    if (key !== sunTimesCache.key) {
+      const r = findSunTimes(S.dateUTC, S.lat, S.lon, tz);
+      sunTimesCache = { key, rise: r.tRise, set: r.tSet, polar: r.polar };
+    }
+    return sunTimesCache;
+  }
+
+  function getMoonTimes() {
+    const tz = parseFloat(el('tz').value) || 0;
+    const localMs = S.dateUTC.getTime() + tz * 3600000;
+    const d = new Date(localMs);
+    const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}|${tz}|${S.lat.toFixed(3)}|${S.lon.toFixed(3)}`;
+
+    if (key !== moonTimesCache.key) {
+      const r = findMoonTimes(S.dateUTC, S.lat, S.lon, tz);
+      moonTimesCache = { key, rise: r.tRise, set: r.tSet };
+    }
+    return moonTimesCache;
+  }
+
+  /* ============================================================
+     9. 全局状态
+     ============================================================ */
+  const S = {
+    dateUTC: new Date(),
+    lat: 39.9,
+    lon: 116.4,
+    camAz: 180,
+    baseAlt: 0,
+    fov: 68,
+    twinkleAmt: 0.55,
+    time: 0,
+    playing: false,
+    speed: 3600
+  };
+
+  const RES = 240;
+  const DIRS = ['北','东北','东','东南','南','西南','西','西北'];
+  const dirName = a => DIRS[Math.round((((a % 360) + 360) % 360) / 45) % 8];
+
+  /* ============================================================
+     10. 离屏 canvas
+     ============================================================ */
+  const off = document.createElement('canvas');
+  off.width = RES;
+  off.height = RES;
+  const offCtx = off.getContext('2d');
+  const offImg = offCtx.createImageData(RES, RES);
+
+  /* ============================================================
+     10.5 天空投影：等角立体投影（azimuthal stereographic）
+          以视线中心方向为投影中心。等角 → 星座在天上怎么摆、屏上就怎么摆，
+          不会随高度角被横向拉伸；投影面积覆盖整个可见半球。
+          背景渐变用逐像素反投影表，天体用 projectSky 正投影，两者严格一致。
+     ============================================================ */
+  const R2D = 180 / Math.PI;
+
+  // 视线中心高度角（底边高度角 + 半视场，最高到天顶）
+  function projCenterAlt() {
+    return clamp(S.baseAlt + S.fov / 2, 0, 90);
+  }
+
+  // 投影缩放：视场半宽对应投影半径 ρ(fov/2)，使画面纵向仍恰好覆盖 fov
+  function projK() {
+    return (RES / 2) / (2 * Math.tan((S.fov / 4) * RAD));
+  }
+
+  // 立体投影的局部比例（等角：各方向一致），返回该角距离处每度对应的像素数
+  function projPxPerDeg(theta) {
+    const c = Math.cos(theta / 2);
+    return projK() * RAD / (c * c);
+  }
+
+  // 天体方向 → 240 画布坐标（x 向右，y 向下）；t 为与投影中心的角距离
+  function projectSky(az, alt) {
+    const a0 = projCenterAlt() * RAD;
+    const sa0 = Math.sin(a0), ca0 = Math.cos(a0);
+    const a = alt * RAD, sa = Math.sin(a), ca = Math.cos(a);
+    const d = (((az - S.camAz + 540) % 360) - 180) * RAD;
+    const cd = Math.cos(d), sd = Math.sin(d);
+
+    const w = clamp(sa0 * sa + ca0 * ca * cd, -1, 1);   // cosθ
+    const u = ca * sd;                                  // 向右分量
+    const v = ca0 * sa - sa0 * ca * cd;                 // 向上分量
+    const sinT = Math.sqrt(u * u + v * v);
+
+    const rho = 2 * sinT / Math.max(1 + w, 1e-9) * projK();  // 2·tan(θ/2)·k
+    const inv = sinT > 1e-12 ? rho / sinT : 0;
+
+    return { x: RES / 2 + u * inv, y: RES / 2 - v * inv, t: Math.atan2(sinT, w) };
+  }
+
+  // 地平→天顶过渡系数查表（高度角 -90~90°，0.5° 一步）
+  const KK_LUT = new Float32Array(361);
+  for (let i = 0; i <= 360; i++) {
+    const alt = i / 2 - 90;
+    const t = clamp(alt, 0, 90) / 90;
+    KK_LUT[i] = alt > 0 ? 1 - Math.pow(1 - t, 1.9) : 0;
+  }
+
+  // 相机变化时重建的逐像素反投影表
+  const bgKk = new Float32Array(RES * RES);
+  const bgCA = new Float32Array(RES * RES);
+  const bgSA = new Float32Array(RES * RES);
+  let bgKey = '';
+
+  function buildBgTables() {
+    const key = S.camAz + '|' + S.baseAlt + '|' + S.fov;
+    if (key === bgKey) return;
+    bgKey = key;
+
+    const a0 = projCenterAlt() * RAD;
+    const sa0 = Math.sin(a0), ca0 = Math.cos(a0);
+    const az0 = S.camAz * RAD;
+    const k = projK();
+
+    let i = 0;
+    for (let yy = 0; yy < RES; yy++) {
+      const v = RES / 2 - (yy + 0.5);
+
+      for (let xx = 0; xx < RES; xx++, i++) {
+        const u = (xx + 0.5) - RES / 2;
+        const rr = Math.sqrt(u * u + v * v);
+
+        let altDeg, az;
+
+        if (rr < 1e-6) {
+          altDeg = a0 * R2D;
+          az = az0;
+        } else {
+          const rhoN = rr / k;                     // = 2·tan(θ/2)
+          const t2 = rhoN * rhoN / 4;              // tan²(θ/2)
+          const sinT = rhoN / (1 + t2);
+          const cosT = (1 - t2) / (1 + t2);
+          const sinPA = u / rr, cosPA = v / rr;
+
+          altDeg = Math.asin(clamp(cosT * sa0 + sinT * ca0 * cosPA, -1, 1)) * R2D;
+
+          const y1 = sinT * sinPA;
+          const x1 = cosT * ca0 - sinT * sa0 * cosPA;
+          az = az0 + Math.atan2(y1, x1);
+        }
+
+        bgCA[i] = Math.cos(az);
+        bgSA[i] = Math.sin(az);
+        bgKk[i] = KK_LUT[clamp(Math.round((altDeg + 90) * 2), 0, 360)];
+      }
+    }
+  }
+
+  /* ============================================================
+     11. 主 canvas
+     ============================================================ */
+  const canvas = document.getElementById('sky');
+  const ctx = canvas.getContext('2d');
+  let viewSize = 520;
+
+  function layout() {
+    const stage = document.querySelector('.stage');
+    const avail = Math.min(stage.clientWidth - 60, stage.clientHeight - 170);
+    viewSize = Math.max(220, Math.min(avail, 680));
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.style.width  = viewSize + 'px';
+    canvas.style.height = viewSize + 'px';
+    canvas.width  = Math.round(viewSize * dpr);
+    canvas.height = Math.round(viewSize * dpr);
+
+    render();
+  }
+
+  /* ============================================================
+     12. 渲染 240×240 天空
+         太阳圆盘：中心白热，边缘暖橙
+     ============================================================ */
+  let lastSun = { alt: 0, az: 0 };
+
+  function renderSky240() {
+    const sun = sunPosition(S.dateUTC, S.lat, S.lon);
+    lastSun = sun;
+
+    const sky = skyColors(sun.alt);
+    const hWarm = sky.h;
+    const zR = sky.z[0], zG = sky.z[1], zB = sky.z[2];
+
+    const hCool = lerpColorKeys(H_OPP, sun.alt);
+
+    const azContrast = smoothstep(45, 5, sun.alt);
+
+    const glowK = smoothstep(-8, 10, sun.alt);
+
+    // 日出/日落时太阳整体偏红：高度角越低越红
+    const sunRed = smoothstep(12, -1, sun.alt);
+
+    // 光晕颜色与强度（落日时偏橙红、并适当变弱，避免盖过太阳圆盘）
+    const gG = lerp(245, 130, sunRed);
+    const gB = lerp(228, 62,  sunRed);
+    const gAmp = lerp(0.42, 0.30, sunRed);
+
+    buildBgTables();
+
+    const sunP = projectSky(sun.az, sun.alt);
+    const sunSX = sunP.x;
+    const sunSY = sunP.y;
+
+    // 圆盘 = 真实角半径 × 2，再按投影的局部比例换成像素
+    // 与月亮同一套逻辑：视场变化时太阳的角大小恒定，不再随 fov 缩放
+    const diskPx = Math.max(MIN_BODY_RAD_PX, SUN_ANG_RAD * projPxPerDeg(sunP.t));
+    const diskPx2 = diskPx * diskPx;
+
+    const glowRadiusPx = 45 / S.fov * RES;
+    const glowRadiusPx2 = glowRadiusPx * glowRadiusPx;
+
+    const diskVis = smoothstep(-1.5, 0, sun.alt);
+
+    // 太阳圆盘：径向渐变，中心为最亮点，向外过渡到橙红边缘
+    // 中心始终亮于边缘与光晕，避免"中心像黑洞"；日出日落时整体偏橙红
+    const diskCenterR = 255;
+    const diskCenterG = lerp(255, 214, sunRed);
+    const diskCenterB = lerp(255, 158, sunRed);
+
+    const diskEdgeR = 255;
+    const diskEdgeG = lerp(250, 150, sunRed);
+    const diskEdgeB = lerp(240, 92,  sunRed);
+
+    const sunPossible = sunSX > -glowRadiusPx && sunSX < RES + glowRadiusPx &&
+                        sunSY > -glowRadiusPx && sunSY < RES + glowRadiusPx;
+
+    // 每帧常量：地平线色的方位混合 = 基准 + 系数 × cos(该像素方位 − 太阳方位)
+    const csun = Math.cos(sun.az * RAD), ssun = Math.sin(sun.az * RAD);
+    const mixHalf = 0.5 * azContrast;
+
+    const aR = hCool[0] + (hWarm[0] - hCool[0]) * 0.5, bR = (hWarm[0] - hCool[0]) * mixHalf;
+    const aG = hCool[1] + (hWarm[1] - hCool[1]) * 0.5, bG = (hWarm[1] - hCool[1]) * mixHalf;
+    const aB = hCool[2] + (hWarm[2] - hCool[2]) * 0.5, bB = (hWarm[2] - hCool[2]) * mixHalf;
+
+    const data = offImg.data;
+    let p = 0;
+    let bi = 0;
+
+    for (let y = 0; y < RES; y++) {
+      const dyp = y + 0.5 - sunSY;
+
+      for (let x = 0; x < RES; x++, bi++) {
+        const cm = bgCA[bi] * csun + bgSA[bi] * ssun;
+
+        let cr = aR + bR * cm;
+        let cg = aG + bG * cm;
+        let cb = aB + bB * cm;
+
+        const kk = bgKk[bi];
+        cr += (zR - cr) * kk;
+        cg += (zG - cg) * kk;
+        cb += (zB - cb) * kk;
+
+        if (sunPossible) {
+          const dxp = x + 0.5 - sunSX;
+          const d2p = dxp * dxp + dyp * dyp;
+
+          // 光晕
+          if (glowK > 0.003 && d2p < glowRadiusPx2) {
+            const t = Math.sqrt(d2p / glowRadiusPx2);
+            const u = 1 - t;
+            const glow = u * u * u * u * glowK;
+            if (glow > 0.001) {
+              cr += 255 * glow * gAmp;
+              cg += gG  * glow * gAmp;
+              cb += gB  * glow * gAmp;
+            }
+          }
+
+          if (cr > 255) cr = 255;
+          if (cg > 255) cg = 255;
+          if (cb > 255) cb = 255;
+
+          // 太阳圆盘：中心白，边缘暖
+          if (diskVis > 0.005 && d2p < diskPx2) {
+            const t = Math.sqrt(d2p / diskPx2);   // 0 = 中心，1 = 边缘
+            const s = 1 - t * t;
+            const disk = s * s * diskVis;
+
+            // 中心白度：中心 1，边缘 0
+            const centerW = Math.sqrt(1 - t * t);
+
+            const cR = diskEdgeR + (diskCenterR - diskEdgeR) * centerW;
+            const cG = diskEdgeG + (diskCenterG - diskEdgeG) * centerW;
+            const cB = diskEdgeB + (diskCenterB - diskEdgeB) * centerW;
+
+            cr = cr + (cR - cr) * disk;
+            cg = cg + (cG - cg) * disk;
+            cb = cb + (cB - cb) * disk;
+          }
+        }
+
+        data[p++] = cr < 0 ? 0 : cr > 255 ? 255 : cr;
+        data[p++] = cg < 0 ? 0 : cg > 255 ? 255 : cg;
+        data[p++] = cb < 0 ? 0 : cb > 255 ? 255 : cb;
+        data[p++] = 255;
+      }
+    }
+
+    offCtx.putImageData(offImg, 0, 0);
+  }
+
+  /* ============================================================
+     13. 叠加星空（含随机闪烁）
+         直接画在主画布（显示分辨率）上，避免 240px 缓冲放大导致的模糊
+     ============================================================ */
+  function drawStars(c, SZ) {
+    const jd = S.dateUTC.getTime() / 86400000 + 2440587.5;
+    const starVis = smoothstep(-8, -16, lastSun.alt);
+    if (starVis < 0.01) return;
+
+    const t = S.time;
+    const twinkleAmt = S.twinkleAmt;
+    const sc = SZ / RES;
+    const m = SZ * 0.05;   // 边缘渐隐范围（显示像素）
+
+    c.save();
+    c.globalCompositeOperation = 'lighter';
+
+    for (let s = 0; s < STARS.length; s++) {
+      const st = STARS[s];
+      const pos = starAltAz(st[0], st[1], S.lat, S.lon, jd);
+      if (pos.alt < 0) continue;
+
+      const pt = projectSky(pos.az, pos.alt);
+      const x = pt.x * sc, y = pt.y * sc;
+
+      if (x < -m || x > SZ + m || y < -m || y > SZ + m) continue;
+
+      const edgeFade = Math.min(
+        smoothstep(-m, m, x), smoothstep(SZ + m, SZ - m, x),
+        smoothstep(-m, m, y), smoothstep(SZ + m, SZ - m, y)
+      );
+
+      const horizonFade = smoothstep(0, 10, pos.alt);
+      let intensity = magToIntensity(st[2]) * starVis * horizonFade * edgeFade;
+      if (intensity < 0.02) continue;
+
+      const tw = STAR_TWINKLE[s];
+      const flicker =
+        Math.sin(t * tw.freq + tw.phase) * 0.62 +
+        Math.sin(t * tw.freq * 1.83 + tw.phase * 1.7) * 0.38;
+
+      const magFactor = clamp((st[2] + 1.5) / 4.0 * 0.7 + 0.3, 0.3, 1.0);
+
+      const twinkle = 1 + flicker * tw.depth * magFactor * twinkleAmt;
+
+      intensity = clamp(intensity * twinkle, 0, 1.35);
+
+      const color = bvToColor(st[3]);
+      // 星点半径按显示像素给（不再是 240 坐标），星核更实、边缘一像素内收
+      const radius = 0.55 + intensity * 0.8;
+      const rr = color[0] | 0, gg = color[1] | 0, bb = color[2] | 0;
+
+      const grad = c.createRadialGradient(x, y, 0, x, y, radius);
+      grad.addColorStop(0, `rgba(${rr},${gg},${bb},${intensity.toFixed(3)})`);
+      grad.addColorStop(0.55, `rgba(${rr},${gg},${bb},${(intensity * 0.8).toFixed(3)})`);
+      grad.addColorStop(1, `rgba(${rr},${gg},${bb},0)`);
+      c.fillStyle = grad;
+      c.beginPath();
+      c.arc(x, y, radius, 0, Math.PI * 2);
+      c.fill();
+
+      if (st[2] < 0.5 && intensity > 0.6) {
+        const haloR = radius * 3.5;
+        const halo = c.createRadialGradient(x, y, 0, x, y, haloR);
+        halo.addColorStop(0, `rgba(${rr},${gg},${bb},${(intensity * 0.12).toFixed(3)})`);
+        halo.addColorStop(1, `rgba(${rr},${gg},${bb},0)`);
+        c.fillStyle = halo;
+        c.beginPath();
+        c.arc(x, y, haloR, 0, Math.PI * 2);
+        c.fill();
+      }
+    }
+
+    c.restore();
+  }
+
+  /* ============================================================
+     14. 叠加月亮
+         直接画在主画布（显示分辨率）上，避免 240px 缓冲放大导致的模糊
+     ============================================================ */
+
+  // 月海暗斑（归一化到月面 -1~1）
+  const MOON_MARIA = [
+    { x: -0.34, y: -0.38, rx: 0.30, ry: 0.24, a: 0.20 },
+    { x:  0.12, y: -0.44, rx: 0.22, ry: 0.18, a: 0.18 },
+    { x:  0.36, y: -0.12, rx: 0.20, ry: 0.26, a: 0.16 },
+    { x: -0.10, y:  0.34, rx: 0.26, ry: 0.20, a: 0.12 },
+    { x:  0.30, y:  0.42, rx: 0.16, ry: 0.14, a: 0.10 },
+    { x: -0.52, y:  0.10, rx: 0.14, ry: 0.12, a: 0.09 },
+    { x:  0.02, y: -0.04, rx: 0.18, ry: 0.16, a: 0.08 }
+  ];
+
+  // 环形山 / 亮斑（确定性生成）
+  const MOON_CRATERS = (() => {
+    const list = [];
+    for (let i = 0; i < 90; i++) {
+      const h1 = hash1(i * 1.37 + 3.1);
+      const h2 = hash1(i * 2.71 + 9.4);
+      const h3 = hash1(i * 4.19 + 5.7);
+      const h4 = hash1(i * 7.31 + 1.9);
+      const rr = 0.90 * Math.sqrt(h1);
+      const th = h2 * Math.PI * 2;
+      list.push({
+        x: Math.cos(th) * rr,
+        y: Math.sin(th) * rr,
+        r: 0.030 + h3 * 0.085,
+        a: 0.055 + h4 * 0.075,
+        bright: h4 > 0.86
+      });
+    }
+    return list;
+  })();
+
+  function drawMoon(g, SZ) {
+    const pos = moonAltAz(S.dateUTC, S.lat, S.lon);
+    if (pos.alt < -1) return;
+
+    const sc = SZ / RES;
+
+    const pt = projectSky(pos.az, pos.alt);
+    const x = pt.x * sc, y = pt.y * sc;
+
+    const marginPx = 20;
+    if (x < -marginPx || x > SZ + marginPx || y < -marginPx || y > SZ + marginPx) return;
+
+    // 真实角半径 × 2，按投影局部比例换成显示像素（同样有最小尺寸兜底）
+    const r = Math.max(MIN_BODY_RAD_PX * sc, MOON_ANG_RAD * projPxPerDeg(pt.t) * sc);
+
+    const phase = moonPhase(S.dateUTC);
+    const illum = phase.illumination;
+    const waxing = phase.waxing;
+
+    const moonBrightness = Math.pow(illum, 0.6);
+    const skyBrightness = smoothstep(-8, 35, lastSun.alt);
+
+    const contrast = moonBrightness / (skyBrightness * 2.2 + 0.06);
+    const visibility = clamp(contrast, 0, 1);
+
+    if (visibility < 0.03) return;
+
+    const horizonFade = smoothstep(-1, 5, pos.alt);
+
+    // 月亮是有面积的大天体，不适用星点那套边缘渐隐：
+    // 靠近画布边缘时保持满亮度，超出部分交给画布自然裁剪
+    const vis = visibility * horizonFade;
+    if (vis < 0.02) return;
+
+    // 与太阳同样只按真实角大小绘制，不再对地平线附近做额外放大
+    const rDraw = r;
+
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+
+    const haloR = rDraw * 5;
+    const haloGrad = g.createRadialGradient(x, y, rDraw * 0.5, x, y, haloR);
+    const haloAlpha = 0.16 * illum * vis;
+    haloGrad.addColorStop(0, `rgba(210, 215, 235, ${haloAlpha.toFixed(3)})`);
+    haloGrad.addColorStop(1, 'rgba(210, 215, 235, 0)');
+    g.fillStyle = haloGrad;
+    g.beginPath();
+    g.arc(x, y, haloR, 0, Math.PI * 2);
+    g.fill();
+    g.restore();
+
+    // 未受照的部分保持透明，只画被照亮的部分
+    if (illum > 0.005) {
+      g.save();
+      g.globalCompositeOperation = 'source-over';
+      g.globalAlpha = vis;
+      drawMoonDisk(g, x, y, rDraw, illum, waxing, true);
+      g.restore();
+    }
+  }
+
+  // 月相形状 + 月面纹理（亮区内绘制月海与环形山）
+  function drawMoonDisk(c, cx, cy, r, k, waxing, detail) {
+    const baseAlpha = c.globalAlpha;
+
+    c.save();
+    c.translate(cx, cy);
+    if (!waxing) c.scale(-1, 1);
+
+    const t = Math.max(r * Math.abs(1 - 2 * k), 0.01);
+
+    c.beginPath();
+    c.arc(0, 0, r, -Math.PI / 2, Math.PI / 2, false);
+
+    if (k >= 0.5) {
+      c.ellipse(0, 0, t, r, 0, Math.PI / 2, -Math.PI / 2, false);
+    } else {
+      c.ellipse(0, 0, t, r, 0, Math.PI / 2, -Math.PI / 2, true);
+    }
+    c.closePath();
+
+    const grad = c.createRadialGradient(-r * 0.25, -r * 0.25, r * 0.15, 0, 0, r);
+    grad.addColorStop(0, 'rgba(255, 252, 238, 1)');
+    grad.addColorStop(0.65, 'rgba(245, 240, 222, 1)');
+    grad.addColorStop(1, 'rgba(215, 210, 195, 1)');
+    c.fillStyle = grad;
+    c.fill();
+
+    if (detail && r >= 5) {
+      c.save();
+      c.clip();
+
+      for (let i = 0; i < MOON_MARIA.length; i++) {
+        const m = MOON_MARIA[i];
+        c.globalAlpha = baseAlpha * m.a;
+        c.fillStyle = 'rgba(122, 124, 136, 1)';
+        c.beginPath();
+        c.ellipse(m.x * r, m.y * r, m.rx * r, m.ry * r, 0, 0, Math.PI * 2);
+        c.fill();
+      }
+
+      for (let i = 0; i < MOON_CRATERS.length; i++) {
+        const cr = MOON_CRATERS[i];
+        c.globalAlpha = baseAlpha * cr.a;
+        c.fillStyle = cr.bright ? 'rgba(255, 255, 250, 1)' : 'rgba(148, 146, 138, 1)';
+        c.beginPath();
+        c.arc(cr.x * r, cr.y * r, Math.max(cr.r * r, 0.4), 0, Math.PI * 2);
+        c.fill();
+      }
+
+      c.restore();
+    }
+
+    c.restore();
+  }
+
+  /* ============================================================
+     15. 主渲染
+     ============================================================ */
+  function render() {
+    renderSky240();
+
+    const SZ = viewSize;
+    const dpr = canvas.width / SZ;
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.filter = 'none';
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(off, 0, 0, SZ, SZ);
+
+    // 星星与月亮都按显示分辨率绘制，避免随 240px 缓冲一起被放大而模糊
+    drawStars(ctx, SZ);
+    drawMoon(ctx, SZ);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, SZ - 2, SZ - 2);
+  }
+
+  /* ============================================================
+     16. 月相图标
+     ============================================================ */
+  const moonIcon = document.getElementById('moonIcon');
+  const mictx = moonIcon.getContext('2d');
+
+  function drawMoonIcon() {
+    const W = moonIcon.width, H = moonIcon.height;
+    mictx.clearRect(0, 0, W, H);
+
+    const cx = W / 2, cy = H / 2, r = W * 0.40;
+    const phase = moonPhase(S.dateUTC);
+
+    // 未受照的部分保持透明
+    if (phase.illumination > 0.005) {
+      drawMoonDisk(mictx, cx, cy, r, phase.illumination, phase.waxing, true);
+    }
+  }
+
+  /* ============================================================
+     17. HUD
+     ============================================================ */
+  const el = id => document.getElementById(id);
+  const hAlt = el('hAlt'), hAz = el('hAz'), hState = el('hState'), hStars = el('hStars');
+  const hMoon = el('hMoon');
+  const hRise = el('hRise'), hSet = el('hSet');
+  const riseBox = el('riseBox'), setBox = el('setBox');
+  const moonNameEl = el('moonName'), moonDetailEl = el('moonDetail');
+  const hMoonRise = el('hMoonRise'), hMoonSet = el('hMoonSet');
+  const moonRiseBox = el('moonRiseBox'), moonSetBox = el('moonSetBox');
+
+  function periodName(alt) {
+    if (alt > 20)    return '☀️ 白天';
+    if (alt > 6)     return '🌤️ 上午/下午';
+    if (alt > 0)     return '🌅 金色时刻';
+    if (alt > -0.83) return '🌇 日出/日落';
+    if (alt > -6)    return '🌆 民用暮光';
+    if (alt > -12)   return '🌃 航海暮光';
+    if (alt > -18)   return '🌌 天文暮光';
+    return '🌙 夜晚';
+  }
+
+  function countVisibleStars() {
+    const jd = S.dateUTC.getTime() / 86400000 + 2440587.5;
+    const starVis = smoothstep(-8, -16, lastSun.alt);
+    if (starVis < 0.05) return 0;
+
+    let count = 0;
+
+    for (let s = 0; s < STARS.length; s++) {
+      const st = STARS[s];
+      const pos = starAltAz(st[0], st[1], S.lat, S.lon, jd);
+      if (pos.alt < 5) continue;
+
+      const pt = projectSky(pos.az, pos.alt);
+      if (pt.x < 0 || pt.x > RES || pt.y < 0 || pt.y > RES) continue;
+      count++;
+    }
+    return count;
+  }
+
+  function updateHUD() {
+    hAlt.textContent = lastSun.alt.toFixed(1) + '°';
+    hAz.textContent  = lastSun.az.toFixed(0) + '° ' + dirName(lastSun.az);
+    hState.textContent = periodName(lastSun.alt);
+
+    const n = countVisibleStars();
+    hStars.textContent = n > 0 ? n + ' 颗' : '—';
+
+    const phase = moonPhase(S.dateUTC);
+    const pos = moonAltAz(S.dateUTC, S.lat, S.lon);
+
+    moonNameEl.textContent = phase.name;
+    moonDetailEl.textContent =
+      `照亮 ${Math.round(phase.illumination * 100)}% · 高度 ${pos.alt.toFixed(0)}°`;
+
+    hMoon.textContent = `${phase.name} ${Math.round(phase.illumination * 100)}%`;
+
+    drawMoonIcon();
+
+    const tz = parseFloat(el('tz').value) || 0;
+    const times = getSunTimes();
+
+    if (times.polar === 'day') {
+      hRise.textContent = '极昼'; hSet.textContent = '极昼';
+    } else if (times.polar === 'night') {
+      hRise.textContent = '极夜'; hSet.textContent = '极夜';
+    } else {
+      hRise.textContent = times.rise != null ? fmtTime(times.rise, tz) : '--:--';
+      hSet.textContent  = times.set  != null ? fmtTime(times.set,  tz) : '--:--';
+    }
+
+    const mtimes = getMoonTimes();
+    hMoonRise.textContent = mtimes.rise != null ? fmtTime(mtimes.rise, tz) : '--:--';
+    hMoonSet.textContent  = mtimes.set  != null ? fmtTime(mtimes.set,  tz) : '--:--';
+  }
+
+  /* ============================================================
+     18. 控件绑定
+     ============================================================ */
+  const dtIn = el('dt'), tzIn = el('tz');
+  const azIn = el('az'), piIn = el('pi'), fvIn = el('fv');
+  const azV = el('azV'), piV = el('piV'), fvV = el('fvV');
+  const twIn = el('tw'), twV = el('twV');
+
+  const playBtn = el('play'), spdIn = el('spd'), spdV = el('spdV');
+
+  // 播放速度：每 1 秒真实时间推进的模拟时间
+  const SPEEDS = [1, 60, 300, 1800, 3600, 10800, 21600];
+  const SPEED_LABELS = ['实时', '1分/秒', '5分/秒', '30分/秒', '1小时/秒', '3小时/秒', '6小时/秒'];
+
+  function syncSpeed() {
+    const i = clamp(parseInt(spdIn.value, 10) || 0, 0, SPEEDS.length - 1);
+    S.speed = SPEEDS[i];
+    spdV.textContent = SPEED_LABELS[i];
+  }
+
+  playBtn.addEventListener('click', () => {
+    S.playing = !S.playing;
+    playBtn.textContent = S.playing ? '⏸ 暂停' : '▶ 播放';
+    playBtn.classList.toggle('on', S.playing);
+  });
+
+  spdIn.addEventListener('input', syncSpeed);
+
+  const pad2 = n => String(n).padStart(2, '0');
+
+  // 经纬度：度分秒三个输入 + 半球按钮
+  const DMS = {
+    lat: { d: el('latD'), m: el('latM'), s: el('latS'), h: el('latH'), max: 90,  pos: 'N', neg: 'S' },
+    lon: { d: el('lonD'), m: el('lonM'), s: el('lonS'), h: el('lonH'), max: 180, pos: 'E', neg: 'W' }
+  };
+
+  function dmsRead(k) {
+    const g = DMS[k];
+    const deg = clamp(parseFloat(g.d.value) || 0, 0, g.max);
+    const min = clamp(parseFloat(g.m.value) || 0, 0, 59.999);
+    const sec = clamp(parseFloat(g.s.value) || 0, 0, 59.999);
+    const v = deg + min / 60 + sec / 3600;
+    return g.h.textContent.trim() === g.neg ? -v : v;
+  }
+
+  function dmsWrite(k, value) {
+    const g = DMS[k];
+    const v = clamp(value, -g.max, g.max);
+    const abs = Math.abs(v);
+    let deg = Math.floor(abs);
+    let rem = (abs - deg) * 60;
+    let min = Math.floor(rem);
+    let sec = Math.round((rem - min) * 60);
+    if (sec >= 60) { sec -= 60; min += 1; }
+    if (min >= 60) { min -= 60; deg += 1; }
+    g.d.value = deg; g.m.value = pad2(min); g.s.value = pad2(sec);
+    g.h.textContent = v < 0 ? g.neg : g.pos;
+  }
+
+  function readDateTime() {
+    const v = dtIn.value;
+    if (!v) return;
+    const tz = parseFloat(tzIn.value) || 0;
+    const [dd, tt] = v.split('T');
+    const [Y, M, D] = dd.split('-').map(Number);
+    const [h, m] = tt.split(':').map(Number);
+    S.dateUTC = new Date(Date.UTC(Y, M - 1, D, h, m) - tz * 3600000);
+  }
+
+  function writeDateTime() {
+    const tz = parseFloat(tzIn.value) || 0;
+    const d = new Date(S.dateUTC.getTime() + tz * 3600000);
+    dtIn.value = `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}` +
+                 `T${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+  }
+
+  function syncView() {
+    S.camAz   = parseFloat(azIn.value) || 0;
+    S.fov     = parseFloat(fvIn.value) || 68;
+
+    // 视场越大，底边高度角上限越低：保证视线中心不超过天顶（否则投影中心不是真实方向）
+    const piMax = Math.max(0, Math.round(90 - S.fov / 2));
+    if (parseFloat(piIn.max) !== piMax) {
+      piIn.max = piMax;
+      if (parseFloat(piIn.value) > piMax) piIn.value = piMax;
+    }
+
+    S.baseAlt = clamp(parseFloat(piIn.value) || 0, 0, piMax);
+    S.lat     = clamp(dmsRead('lat'), -90, 90);
+    S.lon     = clamp(dmsRead('lon'), -180, 180);
+
+    azV.textContent = Math.round(S.camAz) + '° ' + dirName(S.camAz);
+    piV.textContent = Math.round(S.baseAlt) + '°';
+    fvV.textContent = Math.round(S.fov) + '°';
+  }
+
+  function updateTwinkleLabel() {
+    const names = ['关闭', '关闭', '极弱', '很弱', '很弱', '弱', '中', '中', '强', '很强', '很强'];
+    twV.textContent = names[Math.round(S.twinkleAmt * 10)] || '中';
+  }
+
+  twIn.addEventListener('input', () => {
+    S.twinkleAmt = parseFloat(twIn.value) / 100;
+    updateTwinkleLabel();
+  });
+
+  dtIn.addEventListener('input', readDateTime);
+  tzIn.addEventListener('input', readDateTime);
+
+  ['lat', 'lon'].forEach(k => {
+    const g = DMS[k];
+    [g.d, g.m, g.s].forEach(inp => inp.addEventListener('input', syncView));
+    g.h.addEventListener('click', () => {
+      g.h.textContent = g.h.textContent.trim() === g.pos ? g.neg : g.pos;
+      syncView();
+    });
+  });
+
+  azIn.addEventListener('input', syncView);
+  piIn.addEventListener('input', syncView);
+  fvIn.addEventListener('input', syncView);
+
+  el('geo').addEventListener('click', () => {
+    if (!navigator.geolocation) { alert('当前浏览器不支持地理定位'); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        dmsWrite('lat', pos.coords.latitude);
+        dmsWrite('lon', pos.coords.longitude);
+        tzIn.value  = (-new Date().getTimezoneOffset() / 60).toFixed(1);
+        syncView();
+      },
+      err => alert('定位失败：' + err.message),
+      { enableHighAccuracy: false, timeout: 10000 }
+    );
+  });
+
+  function jumpToTime(ms) {
+    if (ms == null) return;
+    S.dateUTC = new Date(ms);
+    writeDateTime();
+  }
+
+  riseBox.addEventListener('click', () => jumpToTime(getSunTimes().rise));
+  setBox.addEventListener('click',  () => jumpToTime(getSunTimes().set));
+  moonRiseBox.addEventListener('click', () => jumpToTime(getMoonTimes().rise));
+  moonSetBox.addEventListener('click',  () => jumpToTime(getMoonTimes().set));
+
+  /* ============================================================
+     19. 动画循环
+     ============================================================ */
+  let lastFrame = performance.now();
+  let lastDraw = 0;
+  const FRAME_INTERVAL = 1000 / 30;
+
+  function loop(now) {
+    const dt = Math.min((now - lastFrame) / 1000, 0.1);
+    lastFrame = now;
+    S.time += dt;
+
+    // 快速播放：按倍速推进模拟时间
+    if (S.playing) {
+      S.dateUTC = new Date(S.dateUTC.getTime() + dt * S.speed * 1000);
+      writeDateTime();
+    }
+
+    if (now - lastDraw >= FRAME_INTERVAL) {
+      lastDraw = now;
+      render();
+      updateHUD();
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  /* ============================================================
+     20. 初始化
+     ============================================================ */
+  tzIn.value = (-new Date().getTimezoneOffset() / 60).toFixed(1);
+  S.dateUTC = new Date();
+  writeDateTime();
+  syncView();
+
+  S.twinkleAmt = parseFloat(twIn.value) / 100;
+  updateTwinkleLabel();
+
+  syncSpeed();
+
+  readDateTime();
+
+  window.addEventListener('resize', layout);
+  layout();
+
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

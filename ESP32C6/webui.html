@@ -1,0 +1,1025 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#06322f">
+<title>Skyshot 天空快照 · 配置</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23fbe9d1' stroke='%23d0732f' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%2306322f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@400;600;700;900&family=Noto+Sans+SC:wght@300;400;500;700&display=swap">
+<style>
+  /* ===== 视觉 token —— 对齐 starchart.via.studio 印刷占星体系 ===== */
+  :root{
+    --color-primary:#06322f;   /* 深松绿：下半底、主按钮、深色文字 */
+    --color-secondary:#fbe9d1; /* 奶油杏：卡片底、浅色文字 */
+    --color-tertiary:#d0732f;  /* 陶土橙：输入格、描边、分隔点 */
+    --color-shading:#aec4b7;   /* 鼠尾草绿：上半底、次级文字 */
+    --font-heading:"Noto Serif SC","Songti SC","STSong","SimSun",serif;
+    --font-cursive:"KaiTi","STKaiti","楷体",cursive;
+    --font-copy:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html{box-sizing:border-box}
+
+  /* 硬切双色背景：上鼠尾草绿、下松绿，固定不动（starchart 签名手法） */
+  body{
+    margin:0; color:var(--color-primary);
+    font:16px/1.6 var(--font-copy); -webkit-font-smoothing:antialiased;
+    padding:0 14px calc(96px + env(safe-area-inset-bottom));
+    background:linear-gradient(var(--color-shading) 50%, var(--color-primary) 50% 100%);
+    background-attachment:fixed;
+  }
+  ::selection{background:var(--color-tertiary); color:var(--color-secondary)}
+
+  /* 页头：衬线大标题 + 花体点缀 + 3px 奶油下划线 */
+  header{
+    padding:calc(20px + env(safe-area-inset-top)) 0 8px;
+    display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap;
+  }
+  .eyebrow{
+    width:100%; margin:0 0 4px; color:var(--color-tertiary);
+    font-family:var(--font-cursive); font-size:1.1rem; letter-spacing:.5px;
+  }
+  h1{
+    margin:0; font-family:var(--font-heading); font-weight:700;
+    font-size:clamp(2rem,5vw,3.2rem); line-height:1.05; letter-spacing:.04em;
+    padding-bottom:.12em; border-bottom:3px solid var(--color-secondary);
+    text-align:center; width:100%;
+  }
+  #pill{
+    margin-left:auto; margin-top:10px; font-size:12.5px; letter-spacing:.12em;
+    color:var(--color-primary); background:var(--color-secondary);
+    border:1px solid var(--color-primary); border-radius:0; padding:5px 12px;
+    white-space:nowrap; font-weight:500;
+  }
+  #pill.on{border-color:var(--color-primary)}
+  #pill.off{color:#a13c3c; border-color:#a13c3c}
+
+  /* 顶部导航栏：六个模块切换，选中态松绿底、非线性过渡 */
+  nav.tabs{
+    position:sticky; top:0; z-index:6;
+    display:flex; flex-wrap:wrap; gap:0; margin:6px 0 18px;
+    background:var(--color-secondary);
+    border-bottom:3px solid var(--color-tertiary);
+    box-shadow:0 0 0 1px var(--color-primary);
+  }
+  nav.tabs button{
+    flex:1 1 0; min-width:96px; background:var(--color-secondary); color:var(--color-primary);
+    border:none; box-shadow:none; padding:13px 6px; font-size:14px; font-weight:600;
+    letter-spacing:.1em; cursor:pointer; text-transform:none;
+    transition:background .4s cubic-bezier(.22,1,.36,1), color .4s cubic-bezier(.22,1,.36,1);
+  }
+  nav.tabs button:hover{background:var(--color-shading)}
+  nav.tabs button.active{background:var(--color-primary); color:var(--color-secondary)}
+
+  /* 卡片非线性微动效：hover 轻抬 + 边框换色 */
+  .card{
+    transition:transform .5s cubic-bezier(.22,1,.36,1), box-shadow .5s cubic-bezier(.22,1,.36,1);
+  }
+  .card:hover{transform:translateY(-2px); box-shadow:0 0 0 1px var(--color-tertiary)}
+  /* 导航定位后的目标卡片强调 */
+  @keyframes flash{
+    0%{box-shadow:0 0 0 4px var(--color-tertiary)}
+    100%{box-shadow:0 0 0 1px var(--color-primary)}
+  }
+  .card.flash{animation:flash .7s cubic-bezier(.22,1,.36,1)}
+
+  @media (prefers-reduced-motion: reduce){
+    nav.tabs button,.card{transition:none}
+    .card:hover{transform:none}
+    .card.flash{animation:none}
+  }
+
+  /* 引导句：奶油硬边容器 + 花体，居中（starchart 表单容器手法） */
+  .lead{
+    text-align:center; color:var(--color-primary); margin:14px 0 22px;
+    font-family:var(--font-cursive); font-size:1.15rem;
+    background:var(--color-secondary); border-left:3px solid var(--color-tertiary);
+    border-right:3px solid var(--color-tertiary);
+    padding:10px 16px;
+  }
+
+  /* 卡片：奶油底、硬边、零圆角（starchart 表单容器手法） */
+  .card{
+    background:var(--color-secondary); border:none; border-radius:0;
+    padding:16px 18px; margin-bottom:16px;
+    box-shadow:0 0 0 1px var(--color-primary);
+  }
+  .card h2{
+    display:flex; align-items:baseline; gap:10px;
+    font-family:var(--font-heading); font-weight:700; font-size:1.05rem;
+    margin:0 0 4px; color:var(--color-primary); letter-spacing:.04em;
+  }
+  .card h2 .no{font-family:var(--font-cursive); font-weight:400; color:var(--color-tertiary); font-size:1.1rem}
+  .card .sub{color:var(--color-primary); font-size:.95rem; margin:0 0 14px; opacity:.85}
+  .cardhead{display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:14px; padding-bottom:10px; border-bottom:2px solid var(--color-shading)}
+  .cardhead h2{margin:0}
+
+  .row{display:flex; align-items:center; gap:8px; margin-bottom:12px}
+  .row:last-child{margin-bottom:0}
+  label{color:var(--color-primary); font-size:13.5px; min-width:64px; font-weight:500}
+  .unit{color:var(--color-tertiary); font-size:14px; min-width:14px; text-align:center; font-family:var(--font-copy)}
+
+  /* 输入格：陶土橙底、奶油字、宽松字距、零圆角（starchart 输入格） */
+  input[type=number],input[type=text],input[type=datetime-local],select{
+    flex:1; min-width:0; background:var(--color-tertiary); color:var(--color-secondary);
+    border:none; border-radius:0; padding:11px 12px; font-size:16px; font-family:inherit;
+    letter-spacing:.08em; font-weight:500; text-align:center;
+  }
+  input::placeholder{color:hsla(34,84%,90%,.45)}
+  input:focus,select:focus{outline:2px solid var(--color-primary); outline-offset:-2px}
+
+  /* 经纬度格：可上下拖动调值，隐藏原生 spinner 免得挤占窄格 */
+  input.dms{
+    flex:1; min-width:0; padding:10px 4px; text-align:center;
+    font-variant-numeric:tabular-nums;
+    touch-action:none;              /* 触屏：拦截竖向手势，交给 JS 改值 */
+    cursor:ns-resize;
+  }
+  input.dms::-webkit-outer-spin-button,
+  input.dms::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
+  input.dms{-moz-appearance:textfield}
+  input.dms.spinning{
+    outline:2px solid var(--color-primary); outline-offset:-2px;
+    user-select:none; -webkit-user-select:none;
+  }
+
+  button.hemi{
+    min-width:48px; padding:10px 0; font-weight:700; color:var(--color-tertiary);
+    background:var(--color-secondary); border:2px solid var(--color-tertiary); border-radius:0; cursor:pointer;
+  }
+
+  /* 按钮：主按钮松绿底奶油字；ghost 无底松绿字（starchart ENTER/RESET） */
+  button{
+    background:var(--color-secondary); color:var(--color-primary);
+    border:none; border-radius:0; box-shadow:0 0 0 1px var(--color-primary);
+    padding:11px 14px; font-size:15px; font-family:inherit; cursor:pointer;
+    letter-spacing:.1em; text-transform:uppercase; font-weight:500;
+  }
+  button:active{transform:scale(.99)}
+  button.primary{background:var(--color-primary); color:var(--color-secondary); box-shadow:none; font-weight:700}
+  button.ghost{box-shadow:none; color:var(--color-primary)}
+  .chips{display:flex; flex-wrap:wrap; gap:8px; margin-top:8px}
+  .chips button{padding:8px 12px; font-size:14px; box-shadow:0 0 0 1px var(--color-tertiary); color:var(--color-primary); background:var(--color-secondary)}
+  .chips button.sel{background:var(--color-primary); color:var(--color-secondary); box-shadow:none}
+
+  /* ---- 方位角拨轮：横向刻度 + 中央指示线，两侧 ±5° ---- */
+  .wheel-row{display:flex; align-items:stretch; gap:8px; margin-top:12px}
+  .wheel-row .hemi{min-width:54px; font-size:14px; letter-spacing:.04em}
+  .wheel{
+    position:relative; flex:1; min-width:0; height:56px; overflow:hidden;
+    background:var(--color-secondary); box-shadow:0 0 0 1px var(--color-tertiary);
+    user-select:none; -webkit-user-select:none;
+  }
+  .wheel:focus-visible{outline:2px solid var(--color-primary); outline-offset:-2px}
+  .wheel-track{
+    display:flex; align-items:center; height:100%;
+    overflow-x:auto; overflow-y:hidden;
+    padding:0 calc(50% - 15px);           /* 首尾也能滚到正中 */
+    touch-action:pan-x;
+    scrollbar-width:none; -ms-overflow-style:none;
+    cursor:grab;
+  }
+  .wheel-track::-webkit-scrollbar{display:none}
+  .wheel-track.dragging{cursor:grabbing; scroll-behavior:auto}
+  .wheel-item{
+    position:relative; z-index:2;
+    flex:0 0 30px; width:30px; height:100%;
+    display:flex; align-items:center; justify-content:center;
+    font-size:12.5px; font-variant-numeric:tabular-nums;
+    color:var(--color-primary); opacity:.38;
+    user-select:none; -webkit-user-select:none;
+    transition:color .25s cubic-bezier(.22,1,.36,1), opacity .25s cubic-bezier(.22,1,.36,1), transform .25s cubic-bezier(.22,1,.36,1);
+  }
+  .wheel-item.major{opacity:.68; font-weight:600}
+  .wheel-item.active{color:var(--color-tertiary); opacity:1; font-weight:700; transform:scale(1.18)}
+  .wheel-track.dragging .wheel-item{transition:none}
+  .wheel-marker{
+    position:absolute; left:50%; top:0; bottom:0; width:2px; margin-left:-1px;
+    background:var(--color-tertiary); opacity:.3; pointer-events:none; z-index:1;
+  }
+  .wheel::before,.wheel::after{
+    content:''; position:absolute; top:0; bottom:0; width:36px; pointer-events:none; z-index:3;
+  }
+  .wheel::before{left:0; background:linear-gradient(90deg,var(--color-secondary),rgba(251,233,209,0))}
+  .wheel::after{right:0; background:linear-gradient(270deg,var(--color-secondary),rgba(251,233,209,0))}
+
+  @media (prefers-reduced-motion: reduce){
+    .wheel-item{transition:none}
+  }
+
+  /* 滑块 */
+  input[type=range]{flex:1; accent-color:var(--color-tertiary); height:30px}
+  .val{min-width:52px; text-align:right; font-variant-numeric:tabular-nums; color:var(--color-tertiary); font-weight:700}
+
+  .hint{color:var(--color-primary); font-size:13.5px; margin-top:8px; opacity:.92}
+  .hint b{color:var(--color-tertiary); font-weight:700}
+  .hintbox{background:var(--color-secondary); padding:12px 14px; margin-top:12px; border-left:3px solid var(--color-tertiary)}
+
+  /* 预览：松绿深底天空 + 奶油/橙天体（starchart 星盘换皮） */
+  .preview{display:flex; gap:14px; align-items:flex-start}
+  #pv{width:132px; height:132px; flex:none; border-radius:0; border:2px solid var(--color-tertiary); background:var(--color-primary)}
+  .pvinfo{flex:1; min-width:0; font-size:13px; color:var(--color-primary)}
+  .pvinfo .k{font-weight:700}
+
+  /* 状态列表 */
+  .status .row label{min-width:64px}
+  .status .row>div:last-child{flex:1; color:var(--color-primary); font-weight:500}
+
+  /* 页脚：固定松绿底、奶油字、顶部奶油硬线（starchart footer） */
+  footer{
+    position:fixed; left:0; right:0; bottom:0;
+    padding:12px 14px calc(12px + env(safe-area-inset-bottom));
+    background:var(--color-primary); border-top:2px solid var(--color-secondary);
+    display:flex; gap:10px;
+  }
+  footer button{flex:1; padding:14px; font-size:15px}
+  footer button.primary{flex:2; background:var(--color-secondary); color:var(--color-primary); font-weight:700}
+  footer button.ghost{background:var(--color-primary); color:var(--color-secondary); box-shadow:0 0 0 1px var(--color-secondary)}
+
+  #toast{
+    position:fixed; left:50%; bottom:calc(96px + env(safe-area-inset-bottom)); transform:translateX(-50%) translateY(20px);
+    background:var(--color-primary); border:1px solid var(--color-secondary); color:var(--color-secondary);
+    padding:11px 18px; border-radius:0; font-size:14px; opacity:0; transition:.25s; pointer-events:none;
+    max-width:90vw; text-align:center; letter-spacing:.04em;
+  }
+  #toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+
+  /* 移动端：双色背景收成顶部一条横带（starchart ≤1200px 手法） */
+  @media(max-width:767px){
+    body{background:linear-gradient(var(--color-shading) 150px, var(--color-primary) 150px 100%); background-attachment:scroll}
+    h1{font-size:1.9rem}
+    .preview{flex-direction:column; align-items:stretch}
+    #pv{margin:0 auto}
+    .cardhead{flex-wrap:wrap}
+  }
+  @media(max-width:400px){
+    .wheel-row .hemi{min-width:46px; padding:10px 0; font-size:13px}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <p class="eyebrow">截取此刻的天空 · 收进方寸屏幕</p>
+  <h1>Skyshot 天空快照</h1>
+  <span id="pill">连接中…</span>
+</header>
+<p class="lead">给此刻的天空截一帧快照，告诉设备太阳与月亮该落在哪里。</p>
+
+<nav class="tabs" aria-label="配置模块">
+  <button data-target="section-az" class="active">朝向</button>
+  <button data-target="section-loc">位置</button>
+  <button data-target="section-view">画面</button>
+  <button data-target="section-time">时间</button>
+  <button data-target="section-status">状态</button>
+</nav>
+
+<main>
+  <!-- ① 朝向 + 预览 -->
+  <section class="card" id="section-az">
+    <div class="cardhead">
+      <h2><span class="no">①</span>朝向</h2>
+      <div class="sub">屏幕对着哪边</div>
+    </div>
+
+    <div class="preview">
+      <canvas id="pv" width="240" height="240"></canvas>
+      <div class="pvinfo">
+        <div id="sunhint">—</div>
+        <div id="moonhint" style="margin-top:4px">—</div>
+        <div class="hint" style="margin-top:8px">
+          预览按你填的参数实时算：<br>
+          <span class="k">●</span> 太阳 · <span style="color:#b9c3dd">●</span> 月亮 · 箭头表示在画面外
+        </div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:14px">
+      <label for="camAz">方位角</label>
+      <input type="number" id="camAz" min="0" max="360" step="1" inputmode="decimal">
+      <span class="unit" id="azname" style="min-width:34px">—</span>
+    </div>
+
+    <div class="wheel-row">
+      <button class="hemi" id="azfine-l" aria-label="方位角减 5 度">−5°</button>
+      <div class="wheel" id="azWheel" role="slider" tabindex="0"
+           aria-label="方位角拨轮" aria-valuemin="0" aria-valuemax="359" aria-valuenow="270">
+        <div class="wheel-track" id="azWheelTrack"></div>
+        <div class="wheel-marker" aria-hidden="true"></div>
+      </div>
+      <button class="hemi" id="azfine-r" aria-label="方位角加 5 度">+5°</button>
+    </div>
+  </section>
+
+  <!-- ② 位置 -->
+  <section class="card" id="section-loc">
+    <div class="cardhead">
+      <h2><span class="no">②</span>位置</h2>
+      <div class="sub">经纬度</div>
+    </div>
+
+    <div class="row">
+      <label for="latD">纬度</label>
+      <input class="dms" type="number" id="latD" min="0" max="90" inputmode="decimal">
+      <span class="unit">°</span>
+      <input class="dms" type="number" id="latM" min="0" max="59" inputmode="decimal">
+      <span class="unit">′</span>
+      <input class="dms" type="number" id="latS" min="0" max="59" inputmode="decimal">
+      <span class="unit">″</span>
+      <button class="hemi" id="latH">N</button>
+    </div>
+
+    <div class="row">
+      <label for="lonD">经度</label>
+      <input class="dms" type="number" id="lonD" min="0" max="180" inputmode="decimal">
+      <span class="unit">°</span>
+      <input class="dms" type="number" id="lonM" min="0" max="59" inputmode="decimal">
+      <span class="unit">′</span>
+      <input class="dms" type="number" id="lonS" min="0" max="59" inputmode="decimal">
+      <span class="unit">″</span>
+      <button class="hemi" id="lonH">E</button>
+    </div>
+  </section>
+
+  <!-- ③ 画面 -->
+  <section class="card" id="section-view">
+    <div class="cardhead">
+      <h2><span class="no">③</span>画面</h2>
+      <div class="sub">视场与亮度</div>
+    </div>
+    <div class="row">
+      <label for="fov">视场角</label>
+      <input type="range" id="fov" min="10" max="120" step="1">
+      <span class="val" id="fovv">68°</span>
+    </div>
+    <div class="row">
+      <label for="baseAlt">底边高度</label>
+      <input type="range" id="baseAlt" min="0" max="90" step="1">
+      <span class="val" id="baseAltv">0°</span>
+    </div>
+    <div class="row">
+      <label for="twinkle">闪烁强度</label>
+      <input type="range" id="twinkle" min="0" max="100" step="1">
+      <span class="val" id="twinklev">55%</span>
+    </div>
+  </section>
+
+  <!-- ④ 时间 -->
+  <section class="card" id="section-time">
+    <div class="cardhead">
+      <h2><span class="no">④</span>时间</h2>
+      <div class="sub">自动或手动</div>
+    </div>
+    <div class="chips" style="margin-top:0">
+      <button id="tAuto" class="sel">自动 · 联网校时</button>
+      <button id="tManual">手动 · 固定时间</button>
+    </div>
+    <div id="manualBox" style="display:none">
+      <div class="row" style="margin-top:10px">
+        <label for="dt">基准时间</label>
+        <input type="datetime-local" id="dt">
+      </div>
+      <div class="row">
+        <label for="tz">时区</label>
+        <input type="number" id="tz" step="0.5" min="-12" max="14" inputmode="decimal">
+        <span class="unit">h</span>
+      </div>
+      <div class="chips">
+        <button data-t="now">现在</button>
+        <button data-t="18">今晚 18:00</button>
+        <button data-t="20">今晚 20:00</button>
+        <button data-t="6">明早 06:00</button>
+      </div>
+      <div class="hintbox hint">
+        手动模式下设备<b>不联网校时</b>，屏幕时间从这一刻起用内部计时自走。
+      </div>
+    </div>
+    <div id="wifiBox">
+      <div class="row" style="margin-top:10px">
+        <label for="ssid">WiFi 名称</label>
+        <input type="text" id="ssid" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="row">
+        <label for="pass">WiFi 密码</label>
+        <input type="text" id="pass" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="留空表示不修改">
+      </div>
+      <div class="row">
+        <label for="url">校时接口</label>
+        <input type="text" id="url" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </div>
+
+      <div class="hintbox hint" id="autoHint">
+        设备开机后连 WiFi，从校时接口取当前时间，然后关掉 WiFi。
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑤ 设备状态 -->
+  <section class="card status" id="section-status">
+    <div class="cardhead">
+      <h2><span class="no">⑤</span>设备状态</h2>
+      <div class="sub">实时读数</div>
+    </div>
+    <div class="row"><label>太阳</label><div id="st-sun">—</div></div>
+    <div class="row"><label>月亮</label><div id="st-moon">—</div></div>
+    <div class="row"><label>运行</label><div id="st-run">—</div></div>
+  </section>
+</main>
+
+<footer>
+  <button class="primary" id="save">保存并显示</button>
+  <button class="ghost" id="reset">恢复默认</button>
+</footer>
+<div id="toast"></div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const RAD = Math.PI / 180;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const DIR8 = ['北', '东北', '东', '东南', '南', '西南', '西', '西北'];
+const dirName = a => DIR8[Math.round(((a % 360) + 360) % 360 / 45) % 8];
+const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// ---- 表单 ⇄ 参数 ----
+let cfg = { lat: 39.9, lon: 116.4, camAz: 270, baseAlt: 0, fov: 68, twinkle: .55,
+            ssid: '', url: '', manual: false, epoch: 0, tz: 8 };
+let state = null;
+
+const fmtLocalInput = (epochSec, tz) => {          // epoch 秒 → datetime-local 字符串
+  const d = new Date((epochSec + tz * 3600) * 1000);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+};
+const parseLocalInput = (s, tz) => {               // datetime-local → epoch 秒（UTC）
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(s || '');
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) / 1000 - tz * 3600 : null;
+};
+
+// ---- 度分秒 ----
+const DMS = {
+  lat: { d: 'latD', m: 'latM', s: 'latS', h: 'latH', max: 90,  pos: 'N', neg: 'S' },
+  lon: { d: 'lonD', m: 'lonM', s: 'lonS', h: 'lonH', max: 180, pos: 'E', neg: 'W' },
+};
+function dmsRead(k) {
+  const g = DMS[k];
+  const deg = clamp(parseFloat($(g.d).value) || 0, 0, g.max);
+  const min = clamp(parseFloat($(g.m).value) || 0, 0, 59.999);
+  const sec = clamp(parseFloat($(g.s).value) || 0, 0, 59.999);
+  const v = deg + min / 60 + sec / 3600;
+  return $(g.h).textContent.trim() === g.neg ? -v : v;
+}
+function dmsWrite(k, value) {
+  const g = DMS[k];
+  const v = clamp(value, -g.max, g.max);
+  const abs = Math.abs(v);
+  let deg = Math.floor(abs);
+  const rem = (abs - deg) * 60;
+  let min = Math.floor(rem);
+  let sec = Math.round((rem - min) * 60);
+  if (sec >= 60) { sec -= 60; min += 1; }
+  if (min >= 60) { min -= 60; deg += 1; }
+  $(g.d).value = deg;
+  $(g.m).value = String(min).padStart(2, '0');
+  $(g.s).value = String(sec).padStart(2, '0');
+  $(g.h).textContent = v < 0 ? g.neg : g.pos;
+}
+
+function fillForm(fromState) {
+  if (fromState) Object.assign(cfg, fromState);
+  $('camAz').value = Math.round(cfg.camAz);
+  $('azname').textContent = dirName(cfg.camAz);
+  dmsWrite('lat', cfg.lat);
+  dmsWrite('lon', cfg.lon);
+  $('fov').value = cfg.fov;         $('fovv').textContent = Math.round(cfg.fov) + '°';
+  $('baseAlt').value = cfg.baseAlt; $('baseAltv').textContent = Math.round(cfg.baseAlt) + '°';
+  $('twinkle').value = Math.round(cfg.twinkle * 100); $('twinklev').textContent = Math.round(cfg.twinkle * 100) + '%';
+  $('ssid').value = cfg.ssid || '';
+  $('url').value  = cfg.url || '';
+  $('pass').value = '';              // 密码不回显
+  $('tz').value = cfg.tz;
+  if (cfg.epoch > 1e9) $('dt').value = fmtLocalInput(cfg.epoch, cfg.tz);
+  setTimeMode(!!cfg.manual);
+  azSync(cfg.camAz, false);
+}
+
+// 时间模式（自动 / 手动）切换
+function setTimeMode(manual) {
+  cfg.manual = manual;
+  $('tAuto').classList.toggle('sel', !manual);
+  $('tManual').classList.toggle('sel', manual);
+  $('manualBox').style.display = manual ? '' : 'none';
+  $('autoHint').style.display = manual ? 'none' : '';
+  $('wifiBox').style.display = manual ? 'none' : '';
+  if (manual && !$('dt').value) $('dt').value = fmtLocalInput(Date.now() / 1000, cfg.tz);
+}
+
+function readForm() {
+  cfg.camAz   = parseFloat($('camAz').value) || 0;
+  cfg.lat     = dmsRead('lat');
+  cfg.lon     = dmsRead('lon');
+  cfg.fov     = parseFloat($('fov').value) || 68;
+  cfg.baseAlt = parseFloat($('baseAlt').value) || 0;
+  cfg.twinkle = (parseFloat($('twinkle').value) || 0) / 100;
+  cfg.ssid    = $('ssid').value.trim();
+  cfg.pass    = $('pass').value;
+  cfg.url     = $('url').value.trim();
+  cfg.tz      = parseFloat($('tz').value) || 0;
+  const e = parseLocalInput($('dt').value, cfg.tz);
+  if (e !== null) cfg.epoch = e;
+
+  // 与设备一致的范围约束
+  cfg.camAz = ((cfg.camAz % 360) + 360) % 360;
+  $('azname').textContent = dirName(cfg.camAz);
+  cfg.fov = clamp(cfg.fov, 10, 120);
+  $('baseAlt').max = (90 - cfg.fov / 2).toFixed(0);
+  if (parseFloat($('baseAlt').value) > parseFloat($('baseAlt').max)) {
+    $('baseAlt').value = $('baseAlt').max;
+    $('baseAltv').textContent = $('baseAlt').max + '°';
+  }
+  cfg.baseAlt = clamp(cfg.baseAlt, 0, 90 - cfg.fov / 2);
+  return cfg;
+}
+
+// ---- 投影（与固件 proj.cpp 同一套公式，用来实时预览）----
+const projCenterAlt = () => clamp(cfg.baseAlt + cfg.fov / 2, 0, 90);
+const projK = () => 120 / (2 * Math.tan(cfg.fov / 4 * RAD));
+function projectSky(az, alt) {
+  const a0 = projCenterAlt() * RAD, sa0 = Math.sin(a0), ca0 = Math.cos(a0);
+  const a = alt * RAD, sa = Math.sin(a), ca = Math.cos(a);
+  const d = (((az - cfg.camAz + 540) % 360) - 180) * RAD;
+  const cd = Math.cos(d), sd = Math.sin(d);
+  const w = clamp(sa0 * sa + ca0 * ca * cd, -1, 1);
+  const u = ca * sd, v = ca0 * sa - sa0 * ca * cd;
+  const sinT = Math.hypot(u, v);
+  const rho = 2 * sinT / Math.max(1 + w, 1e-9) * projK();
+  const inv = sinT > 1e-12 ? rho / sinT : 0;
+  return { x: 120 + u * inv, y: 120 - v * inv };
+}
+const wrap180 = d => ((d + 540) % 360) - 180;
+
+// 预览配色：松绿深底 + 中央十字 + 奶油太阳 / 浅月（starchart 色系）
+function drawPreview() {
+  const c = $('pv').getContext('2d');
+  c.fillStyle = '#06322f'; c.fillRect(0, 0, 240, 240);
+  c.strokeStyle = '#1f5a55'; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(120, 0); c.lineTo(120, 240); c.moveTo(0, 120); c.lineTo(240, 120); c.stroke();
+
+  const drawBody = (x, y, r, fill, glow) => {
+    const inside = x > -r && x < 240 + r && y > -r && y < 240 + r;
+    if (inside) {
+      if (glow) {
+        const g = c.createRadialGradient(x, y, 0, x, y, r * 5);
+        g.addColorStop(0, glow); g.addColorStop(1, 'rgba(0,0,0,0)');
+        c.fillStyle = g; c.fillRect(x - r * 5, y - r * 5, r * 10, r * 10);
+      }
+      c.beginPath(); c.arc(x, y, r, 0, 7); c.fillStyle = fill; c.fill();
+    } else {
+      const cx = clamp(x, 7, 233), cy = clamp(y, 7, 233);
+      c.save(); c.translate(cx, cy); c.rotate(Math.atan2(y - 120, x - 120));
+      c.beginPath(); c.moveTo(7, 0); c.lineTo(-4, -4.5); c.lineTo(-4, 4.5); c.closePath();
+      c.fillStyle = fill; c.globalAlpha = .85; c.fill(); c.restore();
+    }
+    return inside;
+  };
+
+  if (state) {
+    const sp = projectSky(state.sunAz, state.sunAlt);
+    drawBody(sp.x, sp.y, 4, '#fbe9d1', 'rgba(208,115,47,.4)');
+    if (state.moonAlt > -1) {
+      const mp = projectSky(state.moonAz, state.moonAlt);
+      drawBody(mp.x, mp.y, 3.6, 'rgba(222,232,225,.95)', null);
+    }
+
+    const dAz = wrap180(state.sunAz - cfg.camAz);
+    const lowT = cfg.baseAlt, upT = cfg.baseAlt + cfg.fov;
+    $('sunhint').innerHTML = dAz > cfg.fov / 2  ? `太阳在画面<b>右</b>侧 ${Math.round(dAz - cfg.fov / 2)}°`
+      : dAz < -cfg.fov / 2 ? `太阳在画面<b>左</b>侧 ${Math.round(-dAz - cfg.fov / 2)}°`
+      : state.sunAlt > upT ? `太阳在画面上方 ${Math.round(state.sunAlt - upT)}°`
+      : state.sunAlt < lowT ? `太阳在画面下方 ${Math.round(lowT - state.sunAlt)}°`
+      : `太阳<b>在画面里</b> ✓（高度 ${state.sunAlt.toFixed(0)}°，方位 ${state.sunAz.toFixed(0)}°）`;
+
+    $('moonhint').innerHTML = state.moonAlt <= -1
+      ? '月亮在地平线下'
+      : `月亮 ${(state.moonIllum * 100).toFixed(0)}% ${state.moonWaxing ? '（渐盈）' : '（渐亏）'}，高度 ${state.moonAlt.toFixed(0)}°`;
+  }
+}
+
+/* ============================================================
+   经纬度格：上下拖动 / 滚轮快速加减，数值在字段范围内首尾相接
+   ============================================================ */
+const DMS_IDS = ['latD', 'latM', 'latS', 'lonD', 'lonM', 'lonS'];
+const DMS_STEP_PX = 8;              // 每拖动 8px 记 1 格
+
+function dmsSpinBy(el, delta) {
+  const span = (parseInt(el.getAttribute('max'), 10) || 59) + 1;
+  let v = Math.round(parseFloat(el.value) || 0) + delta;
+  v = ((v % span) + span) % span;                // 首尾相接
+  if (parseFloat(el.value) === v) return;
+  el.value = v;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function bindDmsSpin() {
+  DMS_IDS.forEach(id => {
+    const el = $(id);
+    let drag = null;
+
+    el.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      drag = { id: e.pointerId, y0: e.clientY, v0: parseFloat(el.value) || 0, moved: false };
+      try { el.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+
+    el.addEventListener('pointermove', e => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dy = drag.y0 - e.clientY;                 // 向上拖 = 加
+      if (!drag.moved) {
+        if (Math.abs(dy) < 4) return;
+        drag.moved = true;
+        el.blur();                                    // 拖动时收起键盘，免得视口乱跳
+        el.classList.add('spinning');
+      }
+      e.preventDefault();
+      const step = Math.round(dy / DMS_STEP_PX);
+      const span = (parseInt(el.getAttribute('max'), 10) || 59) + 1;
+      let v = Math.round(drag.v0) + step;
+      v = ((v % span) + span) % span;                 // 首尾相接
+      if (parseFloat(el.value) !== v) {
+        el.value = v;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+
+    const end = e => {
+      if (!drag || (e && e.pointerId !== undefined && e.pointerId !== drag.id)) return;
+      const moved = drag.moved;
+      drag = null;
+      el.classList.remove('spinning');
+      try { if (e && e.pointerId !== undefined) el.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (moved) el.dataset.suppressFocus = '1';      // 拖动后别把焦点/键盘带出来
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+    el.addEventListener('lostpointercapture', end);
+
+    el.addEventListener('click', e => {
+      if (el.dataset.suppressFocus) { delete el.dataset.suppressFocus; e.preventDefault(); }
+    });
+
+    el.addEventListener('wheel', e => {
+      e.preventDefault();
+      dmsSpinBy(el, e.deltaY > 0 ? -1 : 1);           // 滚轮一格 = ±1
+    }, { passive: false });
+  });
+}
+
+/* ============================================================
+   方位角拨轮：横向刻度盘，中央指示线，首尾无缝循环
+   · 触屏：原生横向滚动（手指直接拖）
+   · 鼠标 / 触控笔：指针捕获拖拽
+   · 滚轮、键盘 ←→、点选刻度对齐，均可用
+   与 CSS 约定：.wheel-item 宽 30px、track 左右 padding 各 (50% - 15px)
+   ============================================================ */
+const AZ_ITEM   = 30;              // 单个刻度宽，必须与 CSS 一致
+const AZ_CYCLE  = 360;             // 一圈 360°
+const AZ_ROUNDS = 3;               // 渲染 3 圈，支持双向无限滚动
+const AZ_MID    = AZ_CYCLE;        // 中间一圈的起始索引
+const azMod = n => ((n % AZ_CYCLE) + AZ_CYCLE) % AZ_CYCLE;
+
+let azTrack = null, azWheelEl = null, azItems = [], azActiveIdx = -1;
+let azSilent = false, azSilentT = 0, azSettleT = 0, azResizeT = 0;
+let azDrag = null;
+
+function buildAzWheel() {
+  azWheelEl = $('azWheel');
+  azTrack = $('azWheelTrack');
+
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < AZ_CYCLE * AZ_ROUNDS; i++) {
+    const deg = azMod(i);
+    const el = document.createElement('div');
+    el.className = 'wheel-item' + (deg % 10 === 0 ? ' major' : '');
+    el.textContent = deg;
+    frag.appendChild(el);
+    azItems.push(el);
+  }
+  azTrack.appendChild(frag);
+
+  // —— 滚动（触屏原生 / 滚轮 / 程序滚动）后吸附
+  azTrack.addEventListener('scroll', () => {
+    if (azSilent) return;
+    clearTimeout(azSettleT);
+    azSettleT = setTimeout(azSettle, 110);
+  }, { passive: true });
+
+  // —— 指针拖拽（鼠标 / 触控笔；触屏交给原生滚动，避免双重响应）
+  azTrack.addEventListener('pointerdown', azPointerDown);
+  azTrack.addEventListener('pointermove', azPointerMove);
+  azTrack.addEventListener('pointerup', azPointerUp);
+  azTrack.addEventListener('pointercancel', azPointerUp);
+  azTrack.addEventListener('lostpointercapture', azPointerUp);
+
+  // —— 键盘：←→ 微调 1°
+  azWheelEl.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft')       { e.preventDefault(); azNudge(-1); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); azNudge(1); }
+  });
+}
+
+function azMarkSilent(ms) {
+  azSilent = true;
+  clearTimeout(azSilentT);
+  azSilentT = setTimeout(() => { azSilent = false; }, ms);
+}
+
+function azUpdateActive(index) {
+  if (index === azActiveIdx) return;
+  const prev = azItems[azActiveIdx];
+  if (prev) prev.classList.remove('active');
+  const cur = azItems[index];
+  if (cur) cur.classList.add('active');
+  azActiveIdx = index;
+}
+
+// 把第 index 项滚到正中；write=true 时回写输入框 / 方向名 / 预览
+function azSetIndex(index, smooth, write) {
+  if (!azTrack) return;
+  index = Math.round(index);
+  const x = index * AZ_ITEM;
+  const anim = smooth && !REDUCED;
+  azMarkSilent(anim ? 420 : 50);
+  if (anim) azTrack.scrollTo({ left: x, behavior: 'smooth' });
+  else      azTrack.scrollLeft = x;
+  azUpdateActive(index);
+  if (write) azCommit(index);
+}
+
+// 把索引写回表单与预览
+function azCommit(index) {
+  const deg = azMod(index);
+  if (Math.round(cfg.camAz) === deg) return;
+  cfg.camAz = deg;
+  $('camAz').value = deg;
+  $('azname').textContent = dirName(deg);
+  azWheelEl.setAttribute('aria-valuenow', deg);
+  drawPreview();
+}
+
+// 外部值（输入框 / 设备回读）→ 拨轮位置
+function azSync(deg, smooth) {
+  requestAnimationFrame(() => azSetIndex(AZ_MID + azMod(Math.round(deg)), !!smooth, false));
+}
+
+// ±N 微调：从当前索引连续加减，临到边界时先无感回绕，滚动方向始终连续
+function azNudge(d) {
+  if (azActiveIdx < 0) return;
+  let target = azActiveIdx + d;                     // 连续加减，不跳回本周期
+  const lo = AZ_CYCLE * 0.5, hi = AZ_CYCLE * (AZ_ROUNDS - 0.5);
+  if (target < lo || target > hi) {                 // 临近边界：整圈瞬移（内容重复，视觉无跳变）
+    const shift = target < lo ? AZ_CYCLE : -AZ_CYCLE;
+    azActiveIdx += shift;
+    target += shift;
+    azMarkSilent(50);
+    azTrack.scrollLeft = azActiveIdx * AZ_ITEM;
+  }
+  azSetIndex(target, true, true);
+}
+
+// ——— 拖拽实现 ———
+function azPointerDown(e) {
+  if (e.pointerType === 'touch') return;                 // 触屏走原生滚动
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  azDrag = {
+    id: e.pointerId,
+    startX: e.clientX,
+    startScroll: azTrack.scrollLeft,
+    moved: false,
+    tapIdx: azHitIndex(e.clientX)                        // 用于“点一下对齐”
+  };
+  clearTimeout(azSilentT);
+  azSilent = true;                                       // 拖拽期间不触发吸附
+  azTrack.classList.add('dragging');
+  try { azTrack.setPointerCapture(e.pointerId); } catch (_) {}
+  e.preventDefault();
+}
+
+function azPointerMove(e) {
+  if (!azDrag || e.pointerId !== azDrag.id) return;
+  const dx = e.clientX - azDrag.startX;
+  if (!azDrag.moved && Math.abs(dx) > 3) azDrag.moved = true;
+  azTrack.scrollLeft = azDrag.startScroll - dx;
+  azUpdateActive(Math.round(azTrack.scrollLeft / AZ_ITEM));   // 拖拽中高亮实时跟随
+}
+
+function azPointerUp(e) {
+  if (!azDrag) return;
+  if (e && e.pointerId !== undefined && e.pointerId !== azDrag.id) return;
+  const moved = azDrag.moved, tapIdx = azDrag.tapIdx;
+  azDrag = null;
+  azTrack.classList.remove('dragging');
+  try { if (e && e.pointerId !== undefined) azTrack.releasePointerCapture(e.pointerId); } catch (_) {}
+  clearTimeout(azSilentT);
+  azSilent = false;
+
+  if (moved) {
+    azSettle();                                          // 拖动结束：吸附到整度
+  } else if (tapIdx >= 0) {
+    azSetIndex(tapIdx, true, true);                      // 单击某刻度：对齐到中央
+  }
+}
+
+// 找到 clientX 落在哪个刻度上
+function azHitIndex(clientX) {
+  for (let i = 0; i < azItems.length; i++) {
+    const r = azItems[i].getBoundingClientRect();
+    if (clientX >= r.left && clientX < r.right) return i;
+  }
+  return -1;
+}
+
+// 滚动停止：吸附整度 → 越界无缝回绕 → 回写
+function azSettle() {
+  if (azActiveIdx < 0) return;                     // 初始定位前不响应
+  let idx = Math.round(azTrack.scrollLeft / AZ_ITEM);
+  const lo = AZ_CYCLE * 0.5, hi = AZ_CYCLE * (AZ_ROUNDS - 0.5);
+
+  if (idx < lo || idx > hi) {                      // 回绕到中间圈（视觉无变化）
+    idx += idx < lo ? AZ_CYCLE : -AZ_CYCLE;
+    azMarkSilent(50);
+    azTrack.scrollLeft = idx * AZ_ITEM;
+  } else if (Math.abs(azTrack.scrollLeft - idx * AZ_ITEM) > 0.5) {   // 吸附
+    const anim = !REDUCED;
+    azMarkSilent(anim ? 420 : 50);
+    if (anim) azTrack.scrollTo({ left: idx * AZ_ITEM, behavior: 'smooth' });
+    else      azTrack.scrollLeft = idx * AZ_ITEM;
+  }
+
+  azUpdateActive(idx);
+  azCommit(idx);
+}
+
+// 视口宽度变化 → padding 变了，重新把当前项对回正中
+window.addEventListener('resize', () => {
+  clearTimeout(azResizeT);
+  azResizeT = setTimeout(() => {
+    if (azActiveIdx < 0 || azDrag) return;
+    azMarkSilent(50);
+    azTrack.scrollLeft = azActiveIdx * AZ_ITEM;
+  }, 150);
+});
+
+// ---- 保存 ----
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200);
+}
+async function save() {
+  readForm();
+  const q = new URLSearchParams({
+    lat: cfg.lat, lon: cfg.lon, camAz: cfg.camAz, baseAlt: cfg.baseAlt,
+    fov: cfg.fov, twinkle: cfg.twinkle, ssid: cfg.ssid, pass: cfg.pass, url: cfg.url,
+    manual: cfg.manual ? 1 : 0, epoch: cfg.epoch, tz: cfg.tz
+  });
+  try {
+    const r = await fetch('/api/save?' + q.toString());
+    const j = await r.json();
+    toast(j.ok ? '已保存，热点即将关闭，设备开始按新配置运行 ✓' : '保存失败');
+  } catch (e) { toast('保存失败：连不上设备'); }
+}
+async function reset() {
+  try { await fetch('/api/reset'); toast('已恢复默认值'); setTimeout(poll, 300); }
+  catch (e) { toast('恢复失败：连不上设备'); }
+}
+
+// ---- 状态轮询 ----
+async function poll() {
+  try {
+    const r = await fetch('/api/state');
+    state = await r.json();
+    $('pill').textContent = `在线 · ${state.fps} 帧/秒`;
+    $('pill').className = 'on';
+    $('st-sun').textContent  = `高度 ${state.sunAlt.toFixed(1)}° · 方位 ${state.sunAz.toFixed(1)}°`;
+    $('st-moon').textContent = `高度 ${state.moonAlt.toFixed(0)}° · 照亮 ${(state.moonIllum * 100).toFixed(0)}%`;
+    $('st-run').textContent  = `可见恒星 ${state.stars} 颗 · 可用内存 ${(state.heap / 1024).toFixed(0)} KB · 时间${state.manual ? '手动' : (state.synced ? '已联网校时' : '未校时')}`;
+    if (!poll._done) {                 // 首次拿到设备配置后填表单
+      fillForm(state);
+      poll._done = true;
+    }
+    drawPreview();
+  } catch (e) {
+    $('pill').textContent = '设备未响应';
+    $('pill').className = 'off';
+  }
+}
+
+// ---- 事件绑定 ----
+function bind() {
+
+  $('latH').onclick = () => { $('latH').textContent = $('latH').textContent.trim() === 'N' ? 'S' : 'N'; readForm(); drawPreview(); };
+  $('lonH').onclick = () => { $('lonH').textContent = $('lonH').textContent.trim() === 'E' ? 'W' : 'E'; readForm(); drawPreview(); };
+
+  $('azfine-l').onclick = () => azNudge(-5);
+  $('azfine-r').onclick = () => azNudge(+5);
+
+  const live = ['camAz', 'latD', 'latM', 'latS', 'lonD', 'lonM', 'lonS', 'dt', 'tz'];
+  live.forEach(id => $(id).addEventListener('input', () => {
+    readForm(); drawPreview();
+    if (id === 'camAz') azSync(cfg.camAz, false);
+  }));
+  ['ssid', 'pass', 'url'].forEach(id => $(id).addEventListener('input', readForm));
+
+  $('tAuto').onclick = () => { setTimeMode(false); readForm(); };
+  $('tManual').onclick = () => {
+    if (!$('tz').value) $('tz').value = 8;
+    setTimeMode(true);
+    if (!$('dt').value) $('dt').value = fmtLocalInput(Date.now() / 1000, parseFloat($('tz').value) || 8);
+    readForm();
+  };
+  document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => {
+    const tz = parseFloat($('tz').value) || 0;
+    let base = new Date(Date.now() + tz * 3600e3);
+    if (b.dataset.t !== 'now') {
+      const day = (b.dataset.t === '6') ? base.getUTCDate() + 1 : base.getUTCDate();
+      base = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), day, +b.dataset.t, 0));
+    }
+    cfg.epoch = base.getTime() / 1000 - tz * 3600;
+    $('dt').value = fmtLocalInput(cfg.epoch, tz);
+    readForm();
+    toast('基准时间已设为 ' + $('dt').value.replace('T', ' '));
+  });
+  ['fov', 'baseAlt', 'twinkle'].forEach(id => $(id).addEventListener('input', () => {
+    $(id + 'v').textContent = (id === 'twinkle' ? Math.round($(id).value) + '%' : Math.round($(id).value) + '°');
+    readForm(); drawPreview();
+  }));
+
+  $('save').onclick = save;
+  $('reset').onclick = reset;
+}
+
+buildAzWheel();
+bind();
+bindDmsSpin();
+fillForm(false);
+readForm();
+drawPreview();
+azSync(cfg.camAz, false);
+poll();
+setInterval(poll, 2000);
+
+// ---- 导航栏：非线性缓动滚动 + 区块高亮 + 目标卡片强调 ----
+const SEC_IDS = ['section-az','section-loc','section-view','section-time','section-status'];
+const navBtns = [...document.querySelectorAll('nav.tabs button')];
+const navEl = document.querySelector('nav.tabs');
+const NAV_OFFSET = () => navEl.offsetHeight + 8;   // 动态量 sticky 导航实际高度，避免断点/换行导致偏移不准
+
+// easeOutQuint：先快后慢的非线性缓动
+const easeOutQuint = t => 1 - Math.pow(1 - t, 5);
+let spyLocked = false;
+function smoothScrollTo(targetY, dur) {
+  const start = window.scrollY, dy = targetY - start, t0 = performance.now();
+  const step = now => {
+    const p = Math.min((now - t0) / dur, 1);
+    window.scrollTo(0, start + dy * easeOutQuint(p));
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+function setActive(btn) {
+  navBtns.forEach(x => x.classList.toggle('active', x === btn));
+}
+navBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const sec = document.getElementById(btn.dataset.target);
+    if (!sec) return;
+    setActive(btn);
+    spyLocked = true;                                        // 锁定，避免滚动动画中高亮乱跳
+    const top = sec.getBoundingClientRect().top + window.scrollY - NAV_OFFSET();
+    smoothScrollTo(Math.max(top, 0), 650);
+    setTimeout(() => { spyLocked = false; }, 700); // 动画结束解锁；不重算高亮，保留点击所选，避免被覆盖成"乱跳"
+    sec.classList.remove('flash'); void sec.offsetWidth; sec.classList.add('flash');
+  });
+});
+// scroll-spy：scroll + rAF 节流，选中视口顶部最近的上方区块（比 IntersectionObserver 边界稳定）
+let spyRaf = 0;
+function updateSpy() {
+  if (spyLocked) return;
+  const off = NAV_OFFSET();
+  let current = navBtns[0], best = -Infinity;
+  SEC_IDS.forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const top = el.getBoundingClientRect().top;
+    if (top <= off && top > best) { best = top; current = navBtns[i]; }
+  });
+  setActive(current);
+}
+window.addEventListener('scroll', () => {
+  if (spyLocked) return;
+  cancelAnimationFrame(spyRaf);
+  spyRaf = requestAnimationFrame(updateSpy);
+}, { passive: true });
+</script>
+</body>
+</html>
