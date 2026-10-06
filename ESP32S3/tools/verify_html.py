@@ -243,6 +243,15 @@ def render_sky_html(sec, lat, lon, cam_az, base_alt, fov, sky_keys, h_opp):
     bG = (h[1] - h_cool[1]) * mix_half
     bB = (h[2] - h_cool[2]) * mix_half
 
+    # 地影 + 维纳斯带（与 HTML renderSky240 / 固件 skyPixel 同一公式，照抄 维纳斯.html）
+    haze = 0.15
+    belt_vis = smoothstep(-1.0, -3.0, sun_alt) * (1 - smoothstep(-6.5, -10.5, sun_alt))
+    shadow_alt0 = max(0.0, -sun_alt * 1.15)
+    belt_w = 3.5 + 7 * haze
+    belt_sat = belt_vis * (0.20 + 0.75 * haze)
+    sh_vis = belt_vis * 0.72
+    belt_on = belt_sat > 0.012
+
     frame = bytearray()
     for yy in range(H):
         v = H / 2 - (yy + 0.5)
@@ -274,6 +283,38 @@ def render_sky_html(sec, lat, lon, cam_az, base_alt, fov, sky_keys, h_opp):
             cr += (z[0] - cr) * kk
             cg += (z[1] - cg) * kk
             cb += (z[2] - cb) * kk
+
+            # 地影 + 维纳斯带（公式照抄 维纳斯.html renderSky240）
+            if belt_on:
+                cpix = -cm                       # cos(像素方位 − 反日方位)
+                if cpix > -0.05:
+                    # 东西两侧边缘平滑：更宽的平滑范围，与固件/HTML 一致
+                    anti_w = smoothstep(-0.1, 0.9, cpix)
+
+                    # 该方位上的阴影顶高度：反日点最高，向两侧按 sqrt(cpix) 收窄
+                    shadow_top_h = shadow_alt0 * math.sqrt(max(0.0, cpix))
+
+                    # 地球阴影：位于该方位阴影顶之下，乘法压暗
+                    if shadow_top_h > 0.0 and alt_deg < shadow_top_h:
+                        sh = anti_w * sh_vis * smoothstep(shadow_top_h, shadow_top_h - 1.8, alt_deg)
+                        if sh > 0.004:
+                            cr *= 1 - 0.46 * sh
+                            cg *= 1 - 0.38 * sh
+                            cb *= 1 - 0.14 * sh
+
+                    # 维纳斯带：贴着阴影顶上方，高斯剖面
+                    belt_c = shadow_top_h + 2.5 + 7 * haze
+                    belt_lo = belt_c - 2.6 * belt_w
+                    belt_hi = belt_c + 2.6 * belt_w
+                    if alt_deg > belt_lo and alt_deg < belt_hi:
+                        gd = (alt_deg - belt_c) / belt_w
+                        g = math.exp(-gd * gd)
+                        amt = g * belt_sat * anti_w * 0.85
+                        if amt > 0.004:
+                            pk = smoothstep(0.3, 1.0, g) * 0.4
+                            cr += (255.0 - cr) * amt
+                            cg += (lerp(150, 196, pk) - cg) * amt
+                            cb += (lerp(150, 188, pk) - cb) * amt
 
             if sun_possible:
                 dxp = xx + 0.5 - sun_x

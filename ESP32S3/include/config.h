@@ -44,6 +44,7 @@
 #define CFG_FOV         68.0          // 视场角
 #define CFG_BASE_ALT    0.0           // 底边高度角
 #define CFG_TWINKLE     0.55          // 闪烁强度，0 = 不闪
+#define CFG_HAZE        0.15          // 大气气溶胶（维纳斯带强度），0..1
 
 // ---- 刷新节奏 ----
 #define CFG_FPS         20            // 闪烁刷新率

@@ -364,6 +364,11 @@
       <span class="val" id="twinklev">55%</span>
     </div>
     <div class="row">
+      <label for="haze">大气气溶胶（维纳斯带）</label>
+      <input type="range" id="haze" min="0" max="100" step="1">
+      <span class="val" id="hazev">15%</span>
+    </div>
+    <div class="row">
       <label>屏幕方向</label>
       <div class="chips" id="rotChips" style="margin-top:0; flex:1">
         <button data-rot="0">竖屏</button>
@@ -375,6 +380,7 @@
     <div class="hint">
       竖屏 240×320、横屏 320×240；视场角绑定短边，长边多出的方向看到更多天空。
       180° / 270° 是给倒装摆放用的，画面内容一样、只是整屏转了半圈。保存后生效。
+      大气气溶胶（维纳斯带）决定落日反日点的粉带强度与宽度，参考值 15%。
     </div>
   </section>
 
@@ -456,7 +462,7 @@ const dirName = a => DIR8[Math.round(((a % 360) + 360) % 360 / 45) % 8];
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ---- 表单 ⇄ 参数 ----
-let cfg = { lat: 39.9, lon: 116.4, camAz: 270, baseAlt: 0, fov: 68, twinkle: .55, rot: 1,
+let cfg = { lat: 39.9, lon: 116.4, camAz: 270, baseAlt: 0, fov: 68, twinkle: .55, haze: .15, rot: 1,
             ssid: '', url: '', manual: false, epoch: 0, tz: 8 };
 let state = null;
 
@@ -508,6 +514,7 @@ function fillForm(fromState) {
   $('fov').value = cfg.fov;         $('fovv').textContent = Math.round(cfg.fov) + '°';
   $('baseAlt').value = cfg.baseAlt; $('baseAltv').textContent = Math.round(cfg.baseAlt) + '°';
   $('twinkle').value = Math.round(cfg.twinkle * 100); $('twinklev').textContent = Math.round(cfg.twinkle * 100) + '%';
+  $('haze').value = Math.round(cfg.haze * 100);       $('hazev').textContent = Math.round(cfg.haze * 100) + '%';
   $('ssid').value = cfg.ssid || '';
   $('url').value  = cfg.url || '';
   $('pass').value = '';              // 密码不回显
@@ -536,6 +543,7 @@ function readForm() {
   cfg.fov     = parseFloat($('fov').value) || 68;
   cfg.baseAlt = parseFloat($('baseAlt').value) || 0;
   cfg.twinkle = (parseFloat($('twinkle').value) || 0) / 100;
+  cfg.haze    = (parseFloat($('haze').value) || 0) / 100;
   cfg.ssid    = $('ssid').value.trim();
   cfg.pass    = $('pass').value;
   cfg.url     = $('url').value.trim();
@@ -547,6 +555,8 @@ function readForm() {
   cfg.camAz = ((cfg.camAz % 360) + 360) % 360;
   $('azname').textContent = dirName(cfg.camAz);
   cfg.fov = clamp(cfg.fov, 10, 120);
+  cfg.twinkle = clamp(cfg.twinkle, 0, 1);
+  cfg.haze    = clamp(cfg.haze, 0, 1);
   const altMax = 90 - halfV();                       // 与固件 skyConfigClamp 一致
   $('baseAlt').max = altMax.toFixed(0);
   if (parseFloat($('baseAlt').value) > altMax) {
@@ -980,7 +990,7 @@ async function save() {
   readForm();
   const q = new URLSearchParams({
     lat: cfg.lat, lon: cfg.lon, camAz: cfg.camAz, baseAlt: cfg.baseAlt,
-    fov: cfg.fov, twinkle: cfg.twinkle, rot: cfg.rot,
+    fov: cfg.fov, twinkle: cfg.twinkle, haze: cfg.haze, rot: cfg.rot,
     ssid: cfg.ssid, pass: cfg.pass, url: cfg.url,
     manual: cfg.manual ? 1 : 0, epoch: cfg.epoch, tz: cfg.tz
   });
@@ -1065,8 +1075,8 @@ function bind() {
     schedulePreview();
     toast('基准时间已设为 ' + $('dt').value.replace('T', ' '));
   });
-  ['fov', 'baseAlt', 'twinkle'].forEach(id => $(id).addEventListener('input', () => {
-    $(id + 'v').textContent = (id === 'twinkle' ? Math.round($(id).value) + '%' : Math.round($(id).value) + '°');
+  ['fov', 'baseAlt', 'twinkle', 'haze'].forEach(id => $(id).addEventListener('input', () => {
+    $(id + 'v').textContent = (id === 'fov' || id === 'baseAlt' ? Math.round($(id).value) + '°' : Math.round($(id).value) + '%');
     readForm(); drawPreview();
   }));
 

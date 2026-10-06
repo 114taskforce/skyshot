@@ -96,6 +96,7 @@ static void configLoad(void) {
     getD(g_prefs, "baseAlt", &g_cfg.baseAlt);
     getD(g_prefs, "fov",     &g_cfg.fov);
     getD(g_prefs, "twinkle", &g_cfg.twinkle);
+    getD(g_prefs, "haze",    &g_cfg.haze);
     getI(g_prefs, "rot",     &g_cfg.rot);
 
     getS(g_prefs, "ssid", g_netCfg.ssid, sizeof(g_netCfg.ssid));
@@ -118,6 +119,7 @@ static void configSave(void) {
   g_prefs.putDouble("baseAlt", g_cfg.baseAlt);
   g_prefs.putDouble("fov",     g_cfg.fov);
   g_prefs.putDouble("twinkle", g_cfg.twinkle);
+  g_prefs.putDouble("haze",    g_cfg.haze);
   g_prefs.putInt("rot",        g_cfg.rot);
 
   g_prefs.putString("ssid", g_netCfg.ssid);
@@ -480,9 +482,9 @@ static void applyConfig(void) {
   g_statusRev++;
 
   Serial.printf("[web] 已应用配置（%lu ms）camAz=%.1f fov=%.1f baseAlt=%.1f lat=%.4f "
-                "lon=%.4f twinkle=%.2f | %s ssid=%s\n",
+                "lon=%.4f twinkle=%.2f haze=%.2f | %s ssid=%s\n",
                 (unsigned long)(millis() - t0), g_cfg.camAz, g_cfg.fov, g_cfg.baseAlt,
-                g_cfg.lat, g_cfg.lon, g_cfg.twinkle,
+                g_cfg.lat, g_cfg.lon, g_cfg.twinkle, g_cfg.haze,
                 g_netCfg.manual ? "手动时间" : "联网校时", g_netCfg.ssid);
 }
 
@@ -494,6 +496,7 @@ static void applySave(const ReqArg &a) {
   argDs(a, "baseAlt", &g_cfg.baseAlt);
   argDs(a, "fov", &g_cfg.fov);
   argDs(a, "twinkle", &g_cfg.twinkle);
+  argDs(a, "haze", &g_cfg.haze);
 
   argSs(a, "ssid", g_netCfg.ssid, sizeof(g_netCfg.ssid));
   argSs(a, "pass", g_netCfg.pass, sizeof(g_netCfg.pass));
@@ -574,14 +577,14 @@ static void buildStateJson(const ReqArg *a, char *buf, size_t cap) {
            "\"sunAlt\":%.2f,\"sunAz\":%.2f,\"moonAlt\":%.2f,\"moonAz\":%.2f,"
            "\"moonIllum\":%.3f,\"moonWaxing\":%d,"
            "\"lat\":%.6f,\"lon\":%.6f,\"camAz\":%.2f,\"baseAlt\":%.2f,\"fov\":%.2f,"
-           "\"twinkle\":%.3f,\"ssid\":\"%s\",\"url\":\"%s\",\"tz\":%.2f,\"epoch\":%.0f,"
+           "\"twinkle\":%.3f,\"haze\":%.3f,\"ssid\":\"%s\",\"url\":\"%s\",\"tz\":%.2f,\"epoch\":%.0f,"
            "\"ap\":%d,\"apClients\":%u,\"scrW\":%d,\"scrH\":%d,\"rot\":%d,"
            "\"preview\":%d,\"at\":%.0f,\"plat\":%.6f,\"plon\":%.6f}",
            g_timeSynced ? 1 : 0, g_netCfg.manual ? 1 : 0,
            g_timeSynced ? nowSec() : 0.0,
            (unsigned long)g_fps, (unsigned long)ESP.getFreeHeap(), g_fs.nStars,
            sunAlt, sunAz, moonAlt, moonAz, moonIllum, moonWaxing,
-           g_cfg.lat, g_cfg.lon, g_cfg.camAz, g_cfg.baseAlt, g_cfg.fov, g_cfg.twinkle,
+           g_cfg.lat, g_cfg.lon, g_cfg.camAz, g_cfg.baseAlt, g_cfg.fov, g_cfg.twinkle, g_cfg.haze,
            ssid, url, g_netCfg.tz, g_netCfg.epoch,
            g_apMode ? 1 : 0, (unsigned)g_apClients, skyScreenW(g_cfg.rot), skyScreenH(g_cfg.rot),
            g_cfg.rot,

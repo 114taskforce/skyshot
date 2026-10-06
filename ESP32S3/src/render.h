@@ -49,6 +49,7 @@ struct MoonDraw {
 // 一次刷新（默认 60 s）算好的整帧状态
 struct FrameState {
   double sunAlt, sunAz;
+  float  haze;                                // 大气气溶胶（维纳斯带强度），0..1
   int w, h;                                  // 画布尺寸（由 rot 决定，运行时可变）
   // 天空逐像素计算用的每帧常量
   ProjCtx proj;                              // 反投影常量

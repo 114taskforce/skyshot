@@ -68,6 +68,47 @@ static void skyColorExact(int x, int y, const FrameState *fs, double rgb[3]) {
   cg += (fs->zG - cg) * kk;
   cb += (fs->zB - cb) * kk;
 
+  // 地影 + 维纳斯带（与 render.cpp skyPixel 同一公式，照抄 维纳斯.html，霾度固定 0.15）
+  const double beltVis = smoothstepd(-1.0, -3.0, fs->sunAlt) *
+                         (1.0 - smoothstepd(-6.5, -10.5, fs->sunAlt));
+  const double beltW   = 3.5 + 7 * 0.15;
+  const double beltSat = beltVis * (0.20 + 0.75 * 0.15);
+  const double shVis   = beltVis * 0.72;
+  if (beltSat > 0.012) {
+    const double cpix = -cm;                           // cos(像素方位 − 反日方位)
+    if (cpix > -0.05) {
+      // 东西两侧边缘平滑：更宽的平滑范围，与 render.cpp skyPixel 一致
+            const double antiW = smoothstepd(-0.1, 0.9, cpix);
+      const double shadowTopH = fmax(0.0, -(double)fs->sunAlt * 1.15) * sqrt(fmax(0.0, cpix));
+
+      // 地球阴影：位于该方位阴影顶之下，乘法压暗
+      if (shadowTopH > 0.0 && altDeg < shadowTopH) {
+        const double sh = antiW * shVis * smoothstepd(shadowTopH, shadowTopH - 1.8, altDeg);
+        if (sh > 0.004) {
+          cr *= 1.0 - 0.46 * sh;
+          cg *= 1.0 - 0.38 * sh;
+          cb *= 1.0 - 0.14 * sh;
+        }
+      }
+
+      // 维纳斯带：贴着阴影顶上方，高斯剖面
+      const double beltC  = shadowTopH + 2.5 + 7 * 0.15;
+      const double beltLo = beltC - 2.6 * beltW;
+      const double beltHi = beltC + 2.6 * beltW;
+      if (altDeg > beltLo && altDeg < beltHi) {
+        const double gd = (altDeg - beltC) / beltW;
+        const double g  = exp(-gd * gd);
+        const double amt = g * beltSat * antiW * 0.85;
+        if (amt > 0.004) {
+          const double pk = smoothstepd(0.3, 1.0, g) * 0.4;
+          cr += (255.0 - cr) * amt;
+          cg += (150.0 + 46.0 * pk - cg) * amt;
+          cb += (150.0 + 38.0 * pk - cb) * amt;
+        }
+      }
+    }
+  }
+
   if (fs->sunPossible) {
     const double dxp = (x + 0.5) - fs->sunSX;
     const double dyp = (y + 0.5) - fs->sunSY;

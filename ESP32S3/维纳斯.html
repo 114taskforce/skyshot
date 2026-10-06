@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>240×240 天空模拟器 · 星空 · 月相</title>
+<title>240×240 天空模拟器 · 星空 · 月相 · 维纳斯带</title>
 <style>
   :root{
     --panel-bg: rgba(14,19,34,.62);
@@ -167,6 +167,8 @@
   input[type=range]::-moz-range-thumb{
     width:15px;height:15px;border:none;border-radius:50%;background:#fff;cursor:pointer;
   }
+  #hz::-webkit-slider-thumb{box-shadow:0 0 8px rgba(255,150,150,.6),0 1px 5px rgba(0,0,0,.5);}
+  #hz::-moz-range-thumb{box-shadow:0 0 8px rgba(255,150,150,.6);}
 
   button{
     width:100%;padding:8px;border-radius:10px;border:1px solid var(--border);
@@ -233,7 +235,7 @@
 <div class="app">
   <aside class="panel">
     <h1>🌙 240×240 天空模拟</h1>
-    <p class="subtitle">时间 · 位置 · 视角 · 真实星图 · 月相</p>
+    <p class="subtitle">时间 · 位置 · 视角 · 真实星图 · 月相 · 维纳斯带</p>
 
     <div class="field">
       <label>时间（当地时间）</label>
@@ -331,9 +333,14 @@
 
     <div class="divider"></div>
 
-    <div class="field" style="margin-bottom:0;">
+    <div class="field">
       <div class="slider-head"><span>星星闪烁强度</span><span id="twV">中</span></div>
       <input type="range" id="tw" min="0" max="100" value="55">
+    </div>
+
+    <div class="field" style="margin-bottom:0;">
+      <div class="slider-head"><span style="color:#ffb0a8;">大气气溶胶 · 维纳斯带</span><span id="hzV">60%</span></div>
+      <input type="range" id="hz" min="0" max="100" step="1" value="60">
     </div>
   </aside>
 
@@ -349,6 +356,7 @@
       <div><b>时段</b><span class="v" id="hState">--</span></div>
       <div><b>可见恒星</b><span class="v" id="hStars">--</span></div>
       <div><b>月亮</b><span class="v" id="hMoon">--</span></div>
+      <div><b>维纳斯带</b><span class="v" id="hBelt">--</span></div>
     </div>
   </main>
 </div>
@@ -863,6 +871,7 @@
     baseAlt: 0,
     fov: 68,
     twinkleAmt: 0.55,
+    haze: 0.60,          // 大气气溶胶浓度 0~1（维纳斯带）
     time: 0,
     playing: false,
     speed: 3600
@@ -933,10 +942,10 @@
   }
 
   // 相机变化时重建的逐像素反投影表
-  const bgKk = new Float32Array(RES * RES);
-  const bgCA = new Float32Array(RES * RES);
-  const bgSA = new Float32Array(RES * RES);
-  const bgAlt = new Float32Array(RES * RES);   // 逐像素高度角（地影 / 维纳斯带用）
+  const bgKk  = new Float32Array(RES * RES);
+  const bgCA  = new Float32Array(RES * RES);
+  const bgSA  = new Float32Array(RES * RES);
+  const bgAlt = new Float32Array(RES * RES);   // 该像素对应的地平高度角（度）
   let bgKey = '';
 
   function buildBgTables() {
@@ -976,9 +985,9 @@
           az = az0 + Math.atan2(y1, x1);
         }
 
-        bgAlt[i] = altDeg;
         bgCA[i] = Math.cos(az);
         bgSA[i] = Math.sin(az);
+        bgAlt[i] = altDeg;
         bgKk[i] = KK_LUT[clamp(Math.round((altDeg + 90) * 2), 0, 360)];
       }
     }
@@ -1008,6 +1017,11 @@
   /* ============================================================
      12. 渲染 240×240 天空
          太阳圆盘：中心白热，边缘暖橙
+         维纳斯带 / 地球阴影：
+           - 地球阴影顶高度随方位角变化：反日点最高，向两侧按
+             sqrt(cos(方位角−反日方位)) 收窄，90° 处降到地平线
+           - 维纳斯带始终紧贴阴影顶上方，因此自然形成一条弧线
+           - 强度按 antiW 平滑过渡，避免南北两侧硬切
      ============================================================ */
   let lastSun = { alt: 0, az: 0 };
 
@@ -1070,16 +1084,17 @@
     const aG = hCool[1] + (hWarm[1] - hCool[1]) * 0.5, bG = (hWarm[1] - hCool[1]) * mixHalf;
     const aB = hCool[2] + (hWarm[2] - hCool[2]) * 0.5, bB = (hWarm[2] - hCool[2]) * mixHalf;
 
-    // 地影 + 维纳斯带（公式照抄 维纳斯.html renderSky240；气溶胶浓度固定 0.15）
-    //   阴影顶随方位收窄成弧（像素循环里按 sqrt(-cm) 收窄），反日点最高、90° 处降到地平线
-    //   可见度窗口：太阳 -1°→-3° 渐显、-6.5°→-10.5° 渐隐
-    const haze = 0.15;
-    const beltVis = smoothstep(-1.0, -3.0, sun.alt) * (1 - smoothstep(-6.5, -10.5, sun.alt));
+    /* ---- 维纳斯带 / 地球阴影 每帧常量 ----
+       shadowAlt0 = 反日点处的地球阴影顶高度。
+       具体某方位的阴影顶在像素循环里按 sqrt(cos) 收窄，
+       所以这里只存反日点处的最大值。                     */
+    const beltVis    = smoothstep(-1.0, -3.0, sun.alt) * (1 - smoothstep(-6.5, -10.5, sun.alt));
+    const haze       = S.haze;
     const shadowAlt0 = Math.max(0, -sun.alt * 1.15);
-    const beltW = 3.5 + 7 * haze;
-    const beltSat = beltVis * (0.20 + 0.75 * haze);
-    const shVis = beltVis * 0.72;
-    const beltOn = beltSat > 0.012;
+    const beltW      = 3.5 + 7 * haze;
+    const beltSat    = beltVis * (0.20 + 0.75 * haze);
+    const shVis      = beltVis * 0.72;
+    const beltOn     = beltSat > 0.012;
 
     const data = offImg.data;
     let p = 0;
@@ -1100,22 +1115,27 @@
         cg += (zG - cg) * kk;
         cb += (zB - cb) * kk;
 
-        // 地影 + 维纳斯带（公式照抄 维纳斯.html renderSky240）
+        /* ---------- 维纳斯带 / 地球阴影 ----------
+           cpix = cos(像素方位 − 反日方位) = -cm
+             1  → 正对反日点（阴影最厚，光带最高）
+             0  → 与反日点成 90°（南/北侧，阴影合并到地平线）
+            -1  → 正对太阳                             */
         if (beltOn) {
-          const cpix = -cm;                       // cos(像素方位 − 反日方位)
+          const cpix = -cm;
 
           if (cpix > -0.05) {
-            // 方位平滑：约 92°~66° 之间过渡到满强度
-            // 东西两侧边缘平滑：更宽的平滑范围，与固件 skyPixel 一致
-            const antiW = smoothstep(-0.1, 0.9, cpix);
-            const aPx = bgAlt[bi];
+            // 方位平滑因子：从约 92° 到 66° 之间过渡到满强度
+            const antiW = smoothstep(-0.05, 0.4, cpix);
+
+            const ap = bgAlt[bi];
 
             // 该方位上的阴影顶高度：反日点最高，向两侧按 sqrt(cpix) 收窄
+            // 90° 处降到 0，与真实天空的弧线一致
             const shadowTopH = shadowAlt0 * Math.sqrt(Math.max(0, cpix));
 
-            // 地球阴影：位于该方位阴影顶之下，乘法压暗
-            if (shadowTopH > 0 && aPx < shadowTopH) {
-              const sh = antiW * shVis * smoothstep(shadowTopH, shadowTopH - 1.8, aPx);
+            // 地球阴影：位于该方位的阴影顶之下
+            if (shadowTopH > 0 && ap < shadowTopH) {
+              const sh = antiW * shVis * smoothstep(shadowTopH, shadowTopH - 1.8, ap);
               if (sh > 0.004) {
                 cr *= 1 - 0.46 * sh;
                 cg *= 1 - 0.38 * sh;
@@ -1123,13 +1143,14 @@
               }
             }
 
-            // 维纳斯带：贴着该方位阴影顶上方，高斯剖面
-            const beltC = shadowTopH + 2.5 + 7 * haze;
+            // 维纳斯带：贴着该方位的阴影顶上方
+            const beltC  = shadowTopH + 2.5 + 7 * haze;
             const beltLo = beltC - 2.6 * beltW;
             const beltHi = beltC + 2.6 * beltW;
-            if (aPx > beltLo && aPx < beltHi) {
-              const gd = (aPx - beltC) / beltW;
-              const g = Math.exp(-gd * gd);
+
+            if (ap > beltLo && ap < beltHi) {
+              const gd = (ap - beltC) / beltW;
+              const g  = Math.exp(-gd * gd);
               const amt = g * beltSat * antiW * 0.85;
               if (amt > 0.004) {
                 const pk = smoothstep(0.3, 1, g) * 0.4;
@@ -1472,7 +1493,7 @@
      ============================================================ */
   const el = id => document.getElementById(id);
   const hAlt = el('hAlt'), hAz = el('hAz'), hState = el('hState'), hStars = el('hStars');
-  const hMoon = el('hMoon');
+  const hMoon = el('hMoon'), hBelt = el('hBelt');
   const hRise = el('hRise'), hSet = el('hSet');
   const riseBox = el('riseBox'), setBox = el('setBox');
   const moonNameEl = el('moonName'), moonDetailEl = el('moonDetail');
@@ -1526,6 +1547,22 @@
 
     hMoon.textContent = `${phase.name} ${Math.round(phase.illumination * 100)}%`;
 
+    // ---- 维纳斯带状态（HUD 展示反日点方向的高度，与渲染端窗口一致） ----
+    {
+      const hv = lastSun.alt;
+      const bVis = smoothstep(-1.0, -3.0, hv) * (1 - smoothstep(-6.5, -10.5, hv));
+      const bSat = bVis * (0.20 + 0.75 * S.haze);
+      // 反日点方向 cpix = 1，所以 shadowTopH = shadowAlt0
+      const shadowAlt0 = Math.max(0, -hv * 1.15);
+      const bC = shadowAlt0 + 2.5 + 7 * S.haze;
+      if (bSat < 0.05) {
+        hBelt.textContent = '不可见';
+      } else {
+        const lvl = bSat > 0.60 ? '清晰' : bSat > 0.40 ? '明显' : bSat > 0.20 ? '微弱' : '很弱';
+        hBelt.textContent = `${bC.toFixed(0)}° ${lvl}`;
+      }
+    }
+
     drawMoonIcon();
 
     const tz = parseFloat(el('tz').value) || 0;
@@ -1552,6 +1589,7 @@
   const azIn = el('az'), piIn = el('pi'), fvIn = el('fv');
   const azV = el('azV'), piV = el('piV'), fvV = el('fvV');
   const twIn = el('tw'), twV = el('twV');
+  const hzIn = el('hz'), hzV = el('hzV');
 
   const playBtn = el('play'), spdIn = el('spd'), spdV = el('spdV');
 
@@ -1651,6 +1689,11 @@
     updateTwinkleLabel();
   });
 
+  hzIn.addEventListener('input', () => {
+    S.haze = parseFloat(hzIn.value) / 100;
+    hzV.textContent = Math.round(S.haze * 100) + '%';
+  });
+
   dtIn.addEventListener('input', readDateTime);
   tzIn.addEventListener('input', readDateTime);
 
@@ -1729,6 +1772,9 @@
 
   S.twinkleAmt = parseFloat(twIn.value) / 100;
   updateTwinkleLabel();
+
+  S.haze = parseFloat(hzIn.value) / 100;
+  hzV.textContent = Math.round(S.haze * 100) + '%';
 
   syncSpeed();
 

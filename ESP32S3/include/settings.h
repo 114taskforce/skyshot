@@ -16,6 +16,7 @@ struct SkyConfig {
   double baseAlt;     // 底边高度角
   double fov;         // 视场角
   double twinkle;     // 闪烁强度 0..1
+  double haze;        // 大气气溶胶（维纳斯带强度）0..1，参考值 0.15
   int    rot;         // 屏幕方向 0..3（= LCD_ROTATION），运行时可改（网页/ NVS）
 };
 
@@ -73,6 +74,7 @@ inline void skyConfigDefaults(SkyConfig *c) {
   c->baseAlt = CFG_BASE_ALT;
   c->fov     = CFG_FOV;
   c->twinkle = CFG_TWINKLE;
+  c->haze    = CFG_HAZE;
   c->rot     = LCD_ROTATION;
 }
 
@@ -106,6 +108,7 @@ inline void skyConfigClamp(SkyConfig *c) {
   // （横屏半视场 = fov/2；竖屏高边更长，半视场更大，上限相应更低）
   c->baseAlt = skyClampd(c->baseAlt, 0, 90 - skyHalfV(c));
   c->twinkle = skyClampd(c->twinkle, 0, 1);
+  c->haze    = skyClampd(c->haze, 0, 1);
 
   c->rot = ((c->rot % 4) + 4) % 4;
 }

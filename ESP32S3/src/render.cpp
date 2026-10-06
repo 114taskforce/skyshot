@@ -11,6 +11,7 @@
 #include "render.h"
 #include "sky.h"
 #include "proj.h"
+#include <math.h>
 
 // ---- 月海暗斑（HTML L1221）----
 static const float MOON_MARIA[7][5] = {
@@ -111,6 +112,22 @@ static inline int to6Dither(float v, int x, int y) {
   return i < 0 ? 0 : (i > 63 ? 63 : i);
 }
 
+// 面板伽马校正：ST7789 默认伽马曲线在中段偏线性，同样的 0..255 值在面板上
+// 比 sRGB 显示器亮很多，整幅画面显得发白。推屏前把每通道预压暗
+//   out = 255 * (v/255)^GAMMA_EXP
+// 让面板实际亮度接近网页参考。只作用在最终推屏路径（renderFrameRow666），
+// 不参与渲染数学，也不进校验工具（PPM / check 仍是未校正的 888）。
+// 实机若矫枉过正（画面过暗），把 GAMMA_EXP 调小（如 1.8）；仍发白则调大。
+#define GAMMA_EXP 2.2f
+static uint8_t g_gammaLut[256];
+static bool    g_gammaReady = false;
+static void gammaInit(void) {
+  if (g_gammaReady) return;
+  for (int i = 0; i < 256; i++)
+    g_gammaLut[i] = (uint8_t)(powf((float)i / 255.0f, GAMMA_EXP) * 255.0f + 0.5f);
+  g_gammaReady = true;
+}
+
 // 'lighter' 叠加（相当于 canvas globalCompositeOperation = lighter）
 static inline void addPix(uint8_t *p, uint8_t r, uint8_t g, uint8_t b, float a) {
   if (a <= 0.0f) return;
@@ -122,6 +139,7 @@ static inline void addPix(uint8_t *p, uint8_t r, uint8_t g, uint8_t b, float a) 
 
 void renderInit(const SkyConfig *cfg) {
   projInit(cfg);
+  gammaInit();                              // 面板伽马校正查表（只在最终推屏用）
 
   // 环形山 / 亮斑：与 HTML 同一套 hash1
   for (int i = 0; i < N_CRATERS; i++) {
@@ -145,9 +163,10 @@ void renderInit(const SkyConfig *cfg) {
 void frameStateCompute(FrameState *fs, const SkyConfig *cfg, double jd) {
   skyScreenSize(cfg->rot, &fs->w, &fs->h);      // 画布尺寸（旋转后可变）
 
+  fs->haze = (float)cfg->haze;                    // 大气气溶胶（维纳斯带强度）
+
   const SkyPos sun = sunPosition(jd, cfg->lat, cfg->lon);
-  fs->sunAlt = sun.alt;
-  fs->sunAz  = sun.az;
+  fs->sunAlt = sun.alt;  fs->sunAz  = sun.az;
 
   // ---- 天空配色 ----
   double z[3], h[3], hCool[3];
@@ -326,6 +345,56 @@ static inline void skyPixel(int x, int y, const FrameState *fs,
   cr += (fs->zR - cr) * kk;
   cg += (fs->zG - cg) * kk;
   cb += (fs->zB - cb) * kk;
+
+  // 地影 + 维纳斯带（公式照抄 维纳斯.html renderSky240，气溶胶浓度 = fs->haze，默认 0.15）：
+  //   阴影顶随方位收窄成弧：shadowTopH = shadowAlt0·sqrt(max(0,-cm))，反日点最高、90° 处降到地平线
+  //   antiW = sstep(-0.05, 0.4, -cm) 平滑过渡；地影乘法压暗 ×(1 - 0.46/0.38/0.14·sh)
+  //   可见度窗口：太阳 -1°→-3° 渐显、-6.5°→-10.5° 渐隐
+  //   haze：beltW = 3.5+7h、beltSat = beltVis·(0.20+0.75h)、beltC = shadowTopH+2.5+7h
+  {
+    const float altDeg = asinf(clampf(d.sinAlt, -1.0f, 1.0f)) * 57.29578f;
+    const float haze   = fs->haze;
+    const float beltVis = smoothstepf(-1.0f, -3.0f, fs->sunAlt) *
+                          (1.0f - smoothstepf(-6.5f, -10.5f, fs->sunAlt));
+    const float beltW   = 3.5f + 7.0f * haze;
+    const float beltSat = beltVis * (0.20f + 0.75f * haze);
+    const float shVis   = beltVis * 0.72f;
+    if (beltSat > 0.012f) {
+      const float cpix = -cm;                          // cos(像素方位 − 反日方位)
+      if (cpix > -0.05f) {
+        // 东西两侧边缘平滑：用更宽的平滑范围，带子在反日点附近随方位角
+        // 平缓渐隐到南北侧，消除原来约 66°/92° 处的硬切
+        const float antiW = smoothstepf(-0.1f, 0.9f, cpix);
+        const float shadowTopH = fmaxf(0.0f, -fs->sunAlt * 1.15f) * sqrtf(fmaxf(0.0f, cpix));
+
+        // 地球阴影：位于该方位阴影顶之下，乘法压暗
+        if (shadowTopH > 0.0f && altDeg < shadowTopH) {
+          const float sh = antiW * shVis * smoothstepf(shadowTopH, shadowTopH - 1.8f, altDeg);
+          if (sh > 0.004f) {
+            cr *= 1.0f - 0.46f * sh;
+            cg *= 1.0f - 0.38f * sh;
+            cb *= 1.0f - 0.14f * sh;
+          }
+        }
+
+        // 维纳斯带：贴着阴影顶上方，高斯剖面
+        const float beltC  = shadowTopH + 2.5f + 7.0f * haze;
+        const float beltLo = beltC - 2.6f * beltW;
+        const float beltHi = beltC + 2.6f * beltW;
+        if (altDeg > beltLo && altDeg < beltHi) {
+          const float gd = (altDeg - beltC) / beltW;
+          const float g  = expf(-gd * gd);
+          const float amt = g * beltSat * antiW * 0.85f;
+          if (amt > 0.004f) {
+            const float pk = smoothstepf(0.3f, 1.0f, g) * 0.4f;
+            cr += (255.0f - cr) * amt;
+            cg += (150.0f + 46.0f * pk - cg) * amt;
+            cb += (150.0f + 38.0f * pk - cb) * amt;
+          }
+        }
+      }
+    }
+  }
 
   if (fs->sunPossible) {
     const float dxp = (x + 0.5f) - fs->sunSX;
@@ -593,12 +662,13 @@ void renderFrameRow(uint8_t *rgb, int y, const FrameState *fs, const uint8_t *sk
 }
 
 // 同上，输出 18 位行：每像素 3 字节，每字节的高 6 位有效（ST7789 COLMOD=0x66）
+// 最终推屏前套面板伽马表：预压暗中段，抵消 ST7789 默认偏线性的响应
 void renderFrameRow666(uint8_t *row666, int y, const FrameState *fs, const uint8_t *sky666) {
   static uint8_t row[SCREEN_MAX_DIM * 3];
   renderFrameRow(row, y, fs, sky666);
   for (int x = 0; x < fs->w; x++) {
-    row666[x * 3]     = (uint8_t)(to6(row[x * 3])     << 2);
-    row666[x * 3 + 1] = (uint8_t)(to6(row[x * 3 + 1]) << 2);
-    row666[x * 3 + 2] = (uint8_t)(to6(row[x * 3 + 2]) << 2);
+    row666[x * 3]     = (uint8_t)(to6(g_gammaLut[row[x * 3]])     << 2);
+    row666[x * 3 + 1] = (uint8_t)(to6(g_gammaLut[row[x * 3 + 1]]) << 2);
+    row666[x * 3 + 2] = (uint8_t)(to6(g_gammaLut[row[x * 3 + 2]]) << 2);
   }
 }
