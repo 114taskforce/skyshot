@@ -65,6 +65,18 @@ static void applyRotation(void);
 static uint32_t g_statusRev   = 0;
 static uint32_t g_statusDrawn = 0xFFFFFFFFu;
 
+// ---- 电池 / 电源软锁存状态 ----
+static uint32_t g_batLastMs = 0;
+static uint16_t g_batMv     = 0;      // 电池电压（mV）
+static uint8_t  g_batPct    = 0;      // 电量百分比 0..100
+static bool     g_batLow    = false;  // 低电告警（<3.5V）
+
+// 电源按键状态机（pwrInit/pwrLoop 共用）
+static bool     g_pwrOff    = false;  // 关机状态：USB 下 MCU 仍活着，熄屏待机等开机
+static bool     g_pwrDown   = false;  // PWR 键当前是否按住
+static uint32_t g_pwrDownAt = 0;      // 本次按下的时刻
+static bool     g_pwrReady  = false;  // 已松手一次，允许本次长按生效（区分开机/关机动作）
+
 // ===========================================================================
 //  配置（NVS；config.h 里的值是默认值）
 // ===========================================================================
@@ -662,6 +674,136 @@ static void btnTick(void) {
 }
 
 // ===========================================================================
+//  电池 / 电源软锁存（按微雪例程 BAT_Driver / PWR_Key 重写）
+//
+//  本板没有机械电源开关：按住 PWR 键只是硬件临时供电，松手会不会断电
+//  取决于 pwrInit() 有没有把 GPIO7 拉高完成软锁存 —— 这是「松手就断电」
+//  的根因。电压读数链：GPIO8 → ADC 12bit → analogReadMilliVolts()
+//  → ×3.0 ÷ 0.990476（1:3 分压 + 出厂校准）
+// ===========================================================================
+// 手册公式：Vbat = (ADC毫伏 × 3.0 / 1000.0) / 0.990476；这里多次采样取均值降噪
+static uint16_t readBatteryMv(void) {
+  const int N = 8;
+  uint32_t sum = 0;
+  for (int i = 0; i < N; i++) {
+    int mv = analogReadMilliVolts(PIN_BAT_ADC);
+    if (mv <= 0) {                       // 无 eFuse 校准兜底
+      mv = (int)((uint32_t)analogRead(PIN_BAT_ADC) * 3300u / ((1u << BAT_ADC_BITS) - 1u));
+    }
+    sum += (uint32_t)mv;
+    delayMicroseconds(200);
+  }
+  const float vbat = ((float)(sum / N) * (float)BAT_DIV_RATIO) / (float)BAT_CALIB;
+  return (uint16_t)(vbat + 0.5f);
+}
+
+// 电量：手册刻度 3.30V=0% ~ 4.20V=100%（线性插值，够显示用）
+static uint8_t batPctOf(uint16_t mV) {
+  if (mV == 0) return 0;
+  if (mV >= BAT_V100_MV) return 100;
+  if (mV <= BAT_V0_MV)   return 0;
+  return (uint8_t)(((uint32_t)(mV - BAT_V0_MV) * 100u) / (uint32_t)(BAT_V100_MV - BAT_V0_MV));
+}
+
+static void batInit(void) {
+  analogReadResolution(BAT_ADC_BITS);
+  g_batLastMs = millis();
+  g_batMv  = readBatteryMv();
+  g_batPct = batPctOf(g_batMv);
+  g_batLow = g_batMv > 0 && g_batMv < BAT_LOW_MV;
+  Serial.printf("[bat] 初始 %u mV  %u%%  %s\n", g_batMv, g_batPct, g_batLow ? "LOW" : "OK");
+}
+
+static void batTick(void) {
+  const uint32_t now = millis();
+  if (now - g_batLastMs < BAT_SAMPLE_MS) return;
+  g_batLastMs = now;
+  const uint16_t mv  = readBatteryMv();
+  const uint8_t  pct = batPctOf(mv);
+  const bool low = (mv > 0 && mv < BAT_LOW_MV);
+  if (mv != g_batMv || pct != g_batPct || low != g_batLow) {
+    g_batMv = mv; g_batPct = pct; g_batLow = low;
+    g_statusRev++;                       // 电量变化：重画状态页
+    Serial.printf("[bat] %u mV  %u%%  %s\n", mv, pct, low ? "LOW" : "");
+  }
+}
+
+// 上电锁存：必须在 setup() 最前面、用户松手之前调用
+static void pwrInit(void) {
+  pinMode(PIN_PWR_CTRL, OUTPUT);
+  pinMode(PIN_PWR_KEY, INPUT_PULLUP);      // 按键按下接地；不上拉会浮空误判长按关机
+  digitalWrite(PIN_PWR_CTRL, LOW);
+  delay(100);
+  if (!digitalRead(PIN_PWR_KEY)) {       // PWR 键还按着（上电 = 开机动作）
+    digitalWrite(PIN_PWR_CTRL, HIGH);    // 锁存供电
+    g_pwrDown   = true;                  // 本次按住是"开机"，不许触发关机
+    g_pwrDownAt = millis();
+    g_pwrReady  = false;                 // 必须等松手后再长按，关机才生效
+  }
+  Serial.printf("[pwr] 锁存 GPIO%d = %d（1=电池供电已维持，0=仅 USB/未锁存）\n",
+                PIN_PWR_CTRL, digitalRead(PIN_PWR_CTRL));
+}
+
+// 关机：熄屏 + 断开软锁存。USB 充电时 MCU 不会真断电，只是待机等开机；
+// 电池供电时拉低 GPIO7 即整机断电，下次按住 PWR 走完整上电流程。
+static void pwrShutdown(void) {
+  Serial.println("[pwr] 长按关机");
+  g_pwrOff = true;
+  ledcWrite(PIN_BK_LIGHT, 0);            // 先熄屏
+  digitalWrite(PIN_PWR_CTRL, LOW);       // 切断软锁存
+}
+
+// 重新开机（关机状态长按 PWR 1 秒）：恢复锁存 + 背光 + 画面
+static void pwrOn(void) {
+  g_pwrOff = false;
+  digitalWrite(PIN_PWR_CTRL, HIGH);      // 重新锁存供电
+  ledcWrite(PIN_BK_LIGHT, 1000);         // 恢复背光
+  g_statusRev++;                         // 重画状态页
+  if (g_timeSynced) refresh();           // 已校时：重建背景并推帧
+  Serial.println("[pwr] 重新开机");
+}
+
+// 电源按键状态机，每轮 loop 调一次：
+//   关机状态 → 长按 PWR 1 秒 = 开机
+//   运行状态 → 长按 PWR 3 秒 = 关机（必须先松手再长按，避免上电按住被误判）
+static void pwrLoop(void) {
+  const uint32_t now = millis();
+  const bool pressed = (digitalRead(PIN_PWR_KEY) == LOW);
+
+  if (pressed != g_pwrDown) {
+    if (!pressed) g_pwrReady = true;     // 松手 → 允许下一次长按生效
+    g_pwrDown   = pressed;
+    g_pwrDownAt = now;
+  }
+
+  if (g_pwrOff) {                        // 关机状态：只等长按开机
+    if (g_pwrReady && g_pwrDown && now - g_pwrDownAt >= PWR_ON_MS) {
+      g_pwrDown  = false;
+      g_pwrReady = false;
+      pwrOn();
+    }
+    return;
+  }
+
+  if (g_pwrReady && g_pwrDown && now - g_pwrDownAt >= PWR_HOLD_MS) {
+    g_pwrDown  = false;
+    g_pwrReady = false;
+    pwrShutdown();
+  }
+}
+
+// 状态页电池行：电量 % + 电压 V，低电变红
+static void drawBatteryLine(int y) {
+  char bb[32];
+  snprintf(bb, sizeof(bb), "BAT %u%%  %u.%02uV",
+           g_batPct, g_batMv / 1000, (g_batMv % 1000) / 10);
+  gfx->setTextColor(g_batLow ? RGB565_RED : RGB565_GREEN);
+  gfx->setTextSize(2);
+  gfx->setCursor(16, y);
+  gfx->print(bb);
+}
+
+// ===========================================================================
 //  渲染
 // ===========================================================================
 // 重算整帧几何 / 配色 + 重建背景层（天空色 + 太阳 + 月亮）
@@ -750,6 +892,7 @@ static void drawStatusScreen(void) {
     gfx->print("open http://192.168.4.1 in browser");
     gfx->setCursor(16, 190);
     gfx->print("auto close after 30s idle");
+    drawBatteryLine(208);
     return;
   }
 
@@ -784,6 +927,7 @@ static void drawStatusScreen(void) {
   gfx->print("single click BOOT = resync time");
   gfx->setCursor(16, 166);
   gfx->print("hold BOOT 2s = config AP");
+  drawBatteryLine(182);
 }
 
 static void reportPerf(uint32_t frameMs) {
@@ -817,6 +961,7 @@ static void applyRotation(void) {
 // ===========================================================================
 void setup() {
   Serial.begin(115200);
+  pwrInit();                        // 电源软锁存：先拉高 GPIO7，松 PWR 键才不掉电
   delay(300);
   Serial.println("[sky] boot");
   Serial.printf("[mem] 内部堆 %lu KB，PSRAM %lu KB（可用 %lu KB）\n",
@@ -828,6 +973,7 @@ void setup() {
   ledcWrite(PIN_BK_LIGHT, 1000);
 
   pinMode(PIN_BTN_BOOT, INPUT_PULLUP);
+  batInit();                          // 电池 ADC：GPIO8 分压采样 + 校准系数
 
   // 注意顺序：begin() 先把总线/面板初始化好，setRotation() 才能在总线上写 MADCTL
   const bool ok = gfx->begin(LCD_SPI_HZ);
@@ -870,6 +1016,12 @@ void loop() {
   btnTick();
   apTick();
   netTick();
+  pwrLoop();                        // 电源状态机：关机 3s / 开机 1s
+  if (g_pwrOff) {                   // 关机状态：熄屏待机，只响应长按 PWR 开机
+    delay(20);
+    return;
+  }
+  batTick();                        // 周期采样电池电压 / 电量
   if (g_webRunning) server.handleClient();
 
   if (g_apMode) {                       // 热点模式：停止渲染，只显示热点状态页

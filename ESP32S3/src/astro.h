@@ -19,8 +19,8 @@ extern const double MOON_ANG_RAD;
 // 目标屏 240×240：圆盘最小半径（以 240 画面为单位的像素）
 extern const double MIN_BODY_RAD_PX;
 
-// 星表实际条数 83（sunset.html 里注释写 82，属注释失准，以数组长度为准）
-#define N_STARS 83
+// 星表实际条数 140（原 83 颗亮星 + 主要星座图形星 & 3.0 等内亮星 57 颗）
+#define N_STARS 520
 
 struct SkyPos   { double alt, az; };                       // az: 0..360，正北顺时针
 struct MoonPos  { double ra, dec, lambda, beta, distance; };

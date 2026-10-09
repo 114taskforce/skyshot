@@ -67,6 +67,27 @@
 // BOOT 按键（按下接地）。短按 = 重新联网校时；长按 2 秒 = 开配置热点
 #define PIN_BTN_BOOT  0
 
+// ---- PWR 键 / 电源软锁存（本板没有机械电源开关）----
+// 按住 PWR 键只是硬件临时供电，真正维持通电靠固件把 GPIO7 拉高完成
+// 软锁存；不实现这段代码，松手瞬间就断电（表现为「按一下亮一下就灭」）。
+// 长按 PWR 3 秒 = 拉低 GPIO7 关机（见 main.cpp 的 pwrLoop）
+#define PIN_PWR_KEY   6              // PWR 按键输入（按下接地）
+#define PIN_PWR_CTRL  7              // 电源锁存控制（高 = 维持供电，低 = 断电）
+#define PWR_HOLD_MS   3000           // 长按关机判定时长（ms）
+#define PWR_ON_MS     1000           // 关机状态长按重新开机判定时长（ms）
+
+// ---- 电池电压采样（按微雪例程：GPIO8，ADC 12 bit，板上 1:3 分压）----
+// 电压换算：Vbat = analogReadMilliVolts × 3.0 ÷ 0.990476
+// 0.990476 是出厂校准系数（分压电阻误差），换板子/电池后按手册第 7 节重标
+#define PIN_BAT_ADC     8
+#define BAT_ADC_BITS    12           // ADC 位深（analogReadResolution）
+#define BAT_DIV_RATIO   3.0          // 分压还原倍数（1/3 分压 → ×3）
+#define BAT_CALIB       0.990476f    // 校准系数（新值 = 0.990476 × V固件 ÷ V万用表）
+#define BAT_V100_MV     4200         // 满充 4.2V = 100%
+#define BAT_V0_MV       3300         // 放电截止 3.3V = 0%（再低伤电池）
+#define BAT_LOW_MV      3500         // 低电告警 3.5V（≈10%；别等掉到 3.3V 才提醒）
+#define BAT_SAMPLE_MS   2000         // 采样间隔（ms）
+
 // 屏幕方向（全工程唯一开关：画布尺寸与投影都跟它走，见 include/settings.h）
 //   1 / 3 = 横屏 320×240（宽幅看日落）
 //   0 / 2 = 竖屏 240×320（立式摆放：垂直看到更多天空，水平视野与横屏一致）

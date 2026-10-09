@@ -662,13 +662,22 @@ void renderFrameRow(uint8_t *rgb, int y, const FrameState *fs, const uint8_t *sk
 }
 
 // 同上，输出 18 位行：每像素 3 字节，每字节的高 6 位有效（ST7789 COLMOD=0x66）
-// 最终推屏前套面板伽马表：预压暗中段，抵消 ST7789 默认偏线性的响应
+// 面板伽马只作用在天空背景：星星是点光源 / 高光，不该被预压暗写进量化
+// （否则暗/细星点的色差被压缩成灰黑）。顺序 = 天空(伽马) → 星(原色叠加) → 量化。
 void renderFrameRow666(uint8_t *row666, int y, const FrameState *fs, const uint8_t *sky666) {
   static uint8_t row[SCREEN_MAX_DIM * 3];
-  renderFrameRow(row, y, fs, sky666);
+  const int base = y * fs->w;
   for (int x = 0; x < fs->w; x++) {
-    row666[x * 3]     = (uint8_t)(to6(g_gammaLut[row[x * 3]])     << 2);
-    row666[x * 3 + 1] = (uint8_t)(to6(g_gammaLut[row[x * 3 + 1]]) << 2);
-    row666[x * 3 + 2] = (uint8_t)(to6(g_gammaLut[row[x * 3 + 2]]) << 2);
+    uint8_t c[3];
+    sky666Get(sky666, base + x, c);
+    row[x * 3]     = g_gammaLut[c[0]];
+    row[x * 3 + 1] = g_gammaLut[c[1]];
+    row[x * 3 + 2] = g_gammaLut[c[2]];
+  }
+  renderStarRow(row, y, fs);            // 星：原色叠加，不经伽马
+  for (int x = 0; x < fs->w; x++) {
+    row666[x * 3]     = (uint8_t)(to6(row[x * 3])     << 2);
+    row666[x * 3 + 1] = (uint8_t)(to6(row[x * 3 + 1]) << 2);
+    row666[x * 3 + 2] = (uint8_t)(to6(row[x * 3 + 2]) << 2);
   }
 }

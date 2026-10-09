@@ -1,0 +1,891 @@
+<title>ESP32-S3-LCD-2.8 电池手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+
+<style>
+/* ============================================================
+   布局：左侧固定目录栏 + 右侧正文栏（≤1020px 时收成单栏）
+   身份：测试仪器的石墨灰机身 + 丝印黄标记；数据一律等宽字体
+   ============================================================ */
+:root {
+  color-scheme: light;
+
+  --bg:          #EDEFF2;
+  --surface:     #FFFFFF;
+  --surface-2:   #F6F7F9;
+  --ink:         #14171C;
+  --ink-muted:   #5A626E;
+  --line:        #D3D8DF;
+  --line-soft:   #E6E9ED;
+
+  --accent:      #F5C400;
+  --accent-ink:  #7A5A00;
+  --accent-wash: #FCF3CE;
+
+  --code-bg:     #F1F3F6;
+  --good:        #1F7A4D;
+  --warn:        #9A5B00;
+  --crit:        #A62B1F;
+
+  --shadow: 0 1px 2px rgba(20,23,28,.05), 0 10px 28px -14px rgba(20,23,28,.20);
+
+  --f-cjk:  "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --f-ui:   "IBM Plex Sans", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --bg:          #0F1115;
+    --surface:     #181B20;
+    --surface-2:   #1E2228;
+    --ink:         #E7EAEE;
+    --ink-muted:   #99A2AE;
+    --line:        #2B3038;
+    --line-soft:   #22262C;
+
+    --accent:      #F5C400;
+    --accent-ink:  #EFCB4E;
+    --accent-wash: #272310;
+
+    --code-bg:     #1B1F25;
+    --good:        #4FBE8A;
+    --warn:        #DFA23C;
+    --crit:        #E0695B;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg:          #0F1115;
+  --surface:     #181B20;
+  --surface-2:   #1E2228;
+  --ink:         #E7EAEE;
+  --ink-muted:   #99A2AE;
+  --line:        #2B3038;
+  --line-soft:   #22262C;
+
+  --accent:      #F5C400;
+  --accent-ink:  #EFCB4E;
+  --accent-wash: #272310;
+
+  --code-bg:     #1B1F25;
+  --good:        #4FBE8A;
+  --warn:        #DFA23C;
+  --crit:        #E0695B;
+
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--f-cjk);
+  font-size: 16px;
+  line-height: 1.78;
+  padding-block: 0 4rem;
+  padding-inline: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- 铭牌头 ---------- */
+.nameplate {
+  margin-inline: -20px;
+  padding: 1.15rem 20px calc(1.15rem + 3px);
+  background: #14171C;
+  border-bottom: 3px solid var(--accent);
+}
+.nameplate-inner {
+  max-width: 1080px;
+  margin-inline: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem 1.25rem;
+  align-items: baseline;
+}
+.nameplate .brand {
+  font-family: var(--f-mono);
+  font-weight: 600;
+  font-size: .78rem;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.nameplate .rev {
+  font-family: var(--f-mono);
+  font-size: .74rem;
+  letter-spacing: .08em;
+  color: #8B94A1;
+  margin-left: auto;
+}
+
+/* ---------- 骨架 ---------- */
+.shell {
+  max-width: 1080px;
+  margin-inline: auto;
+  display: grid;
+  grid-template-columns: 196px minmax(0, 1fr);
+  gap: 3.25rem;
+  align-items: start;
+}
+
+nav.toc {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  padding-top: 2.75rem;
+  font-family: var(--f-ui);
+}
+nav.toc p {
+  font-family: var(--f-mono);
+  font-size: .68rem;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin: 0 0 .75rem;
+}
+nav.toc ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  counter-reset: toc;
+}
+nav.toc a {
+  display: flex;
+  gap: .6rem;
+  padding: .3rem .5rem .3rem .15rem;
+  color: var(--ink-muted);
+  text-decoration: none;
+  font-size: .835rem;
+  line-height: 1.45;
+  border-left: 2px solid var(--line-soft);
+  transition: color .15s, border-color .15s;
+}
+nav.toc a::before {
+  counter-increment: toc;
+  content: counter(toc);
+  font-family: var(--f-mono);
+  font-size: .74rem;
+  color: var(--ink-muted);
+  opacity: .75;
+  padding-top: .1rem;
+}
+nav.toc a:hover,
+nav.toc a:focus-visible {
+  color: var(--ink);
+  border-left-color: var(--accent);
+}
+
+main { padding-top: 2.75rem; min-width: 0; }
+
+header.doc { margin-bottom: 3rem; }
+header.doc h1 {
+  font-size: clamp(1.6rem, 4vw, 2.15rem);
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -.01em;
+  text-wrap: balance;
+  margin: 0 0 .7rem;
+}
+header.doc .lede {
+  font-size: 1.02rem;
+  color: var(--ink-muted);
+  max-width: 62ch;
+  margin: 0 0 1.5rem;
+}
+.specstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+.chip {
+  font-family: var(--f-mono);
+  font-size: .76rem;
+  padding: .3rem .62rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.chip b { color: var(--ink); font-weight: 600; }
+
+section { margin-bottom: 3.25rem; scroll-margin-top: 1.5rem; }
+
+h2 {
+  display: flex;
+  align-items: baseline;
+  gap: .7rem;
+  font-family: var(--f-cjk);
+  font-size: 1.24rem;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: -.005em;
+  margin: 0 0 1.15rem;
+  padding-bottom: .6rem;
+  border-bottom: 1px solid var(--line);
+  text-wrap: balance;
+}
+h2 .num {
+  font-family: var(--f-mono);
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+  border-radius: 3px;
+  padding: .1rem .42rem;
+  flex: none;
+}
+
+h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 1.9rem 0 .6rem;
+  letter-spacing: .005em;
+}
+
+p { margin: 0 0 1rem; max-width: 68ch; }
+main ul, main ol { max-width: 68ch; padding-left: 1.3rem; margin: 0 0 1rem; }
+main li { margin-bottom: .45rem; }
+main li::marker { color: var(--ink-muted); }
+
+a { color: var(--accent-ink); text-underline-offset: 3px; }
+
+code {
+  font-family: var(--f-mono);
+  font-size: .855em;
+  background: var(--code-bg);
+  border-radius: 3px;
+  padding: .12em .34em;
+  word-break: break-word;
+}
+
+pre {
+  font-family: var(--f-mono);
+  font-size: .815rem;
+  line-height: 1.72;
+  background: var(--code-bg);
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  margin: 0 0 1.25rem;
+}
+pre code { background: none; padding: 0; font-size: 1em; }
+pre .cmt { color: var(--ink-muted); }
+pre .kw  { color: var(--accent-ink); font-weight: 500; }
+
+.tablewrap {
+  overflow-x: auto;
+  margin: 0 0 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: .875rem;
+  min-width: 30rem;
+}
+th {
+  text-align: left;
+  font-family: var(--f-mono);
+  font-size: .7rem;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  padding: .7rem .9rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+td {
+  padding: .7rem .9rem;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+tbody tr:last-child td { border-bottom: none; }
+td.mono, th.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.mono { font-size: .82rem; }
+
+.callout {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warn);
+  border-radius: 4px;
+  background: var(--surface);
+  padding: .95rem 1.1rem;
+  margin: 0 0 1.25rem;
+  max-width: 68ch;
+}
+.callout p:last-child { margin-bottom: 0; }
+.callout .tag {
+  display: block;
+  font-family: var(--f-mono);
+  font-size: .68rem;
+  font-weight: 600;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--warn);
+  margin-bottom: .35rem;
+}
+.callout.trap { border-left-color: var(--crit); }
+.callout.trap .tag { color: var(--crit); }
+
+/* ---------- 电量刻度 ---------- */
+.scale {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1.35rem 1.2rem 1rem;
+  margin: 0 0 1.35rem;
+  max-width: 68ch;
+}
+/* 分段宽度按真实电压跨度画：0.40 / 0.20 / 0.30 V → 4:2:3 */
+.scale-zones {
+  display: flex;
+  height: 13px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.scale-zones span { display: block; height: 100%; }
+.z-low  { flex: 4; background: var(--crit); opacity: .85; }
+.z-mid  { flex: 2; background: var(--warn); opacity: .85; }
+.z-high { flex: 3; background: var(--good); opacity: .85; }
+.scale-ticks {
+  position: relative;
+  height: 1.15rem;
+  margin-top: .5rem;
+  font-family: var(--f-mono);
+  font-size: .72rem;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.scale-ticks span {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+}
+.scale-ticks span::before {
+  content: "";
+  position: absolute;
+  top: -.5rem;
+  left: 0;
+  width: 1px;
+  height: .32rem;
+  background: var(--line);
+}
+.tk-1 { left: 0; }
+.tk-2 { left: 44.4%; }
+.tk-3 { left: 66.7%; }
+.tk-4 { right: 0; }
+.tk-4::before { left: auto; right: 0; }
+.scale-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem 1.1rem;
+  margin-top: .95rem;
+  padding-top: .8rem;
+  border-top: 1px solid var(--line-soft);
+  font-size: .8rem;
+  color: var(--ink-muted);
+}
+.scale-legend b { font-weight: 500; }
+.dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: .4rem;
+  vertical-align: baseline;
+}
+.d-low  { background: var(--crit); }
+.d-mid  { background: var(--warn); }
+.d-high { background: var(--good); }
+
+/* ---------- 步骤 ---------- */
+.steps {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.25rem;
+  max-width: 68ch;
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+}
+.steps li {
+  display: grid;
+  grid-template-columns: 1.9rem minmax(0, 1fr);
+  gap: .85rem;
+  padding: .7rem 0;
+  border-bottom: 1px solid var(--line-soft);
+  margin: 0;
+}
+.steps li:last-child { border-bottom: none; }
+.steps .n {
+  font-family: var(--f-mono);
+  font-size: .76rem;
+  font-weight: 600;
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+  border-radius: 3px;
+  height: 1.5rem;
+  display: grid;
+  place-items: center;
+  margin-top: .2rem;
+}
+.steps .body p:last-child { margin-bottom: 0; }
+.steps .body { min-width: 0; }
+
+footer.doc {
+  max-width: 68ch;
+  margin-top: 3.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--line);
+  font-size: .82rem;
+  color: var(--ink-muted);
+}
+footer.doc p { max-width: none; }
+
+@media (max-width: 1020px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  nav.toc {
+    position: static;
+    padding-top: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: .5rem;
+  }
+  nav.toc ol { flex-direction: row; flex-wrap: wrap; gap: .3rem .1rem; }
+  nav.toc a { border-left: none; border-bottom: 2px solid var(--line-soft); padding: .2rem .6rem; }
+  nav.toc a:hover, nav.toc a:focus-visible { border-bottom-color: var(--accent); }
+  main { padding-top: 1.75rem; }
+}
+
+@media (max-width: 460px) {
+  body { padding-inline: 16px; }
+  .nameplate { margin-inline: -16px; padding-inline: 16px; }
+  .steps li { grid-template-columns: 1.7rem minmax(0, 1fr); gap: .7rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+
+<div class="nameplate">
+  <div class="nameplate-inner">
+    <span class="brand">Battery &amp; Power</span>
+    <span class="rev">ESP32-S3-LCD-2.8 / STS 固件</span>
+  </div>
+</div>
+
+<div class="shell">
+
+<nav class="toc">
+  <p>目录</p>
+  <ol>
+    <li><a href="#s1">电池功能在哪</a></li>
+    <li><a href="#s2">API 速查</a></li>
+    <li><a href="#s3">电压怎么算</a></li>
+    <li><a href="#s4">最小用法</a></li>
+    <li><a href="#s5">开机与关机</a></li>
+    <li><a href="#s6">电压换算电量</a></li>
+    <li><a href="#s7">校准</a></li>
+    <li><a href="#s8">排查表</a></li>
+    <li><a href="#s9">换板子改什么</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<header class="doc">
+  <h1>电池手册</h1>
+  <p class="lede">这份手册讲这块板子上电池相关的全部代码：怎么读电压、读数怎么得来、电池供电时怎么开机和关机、读数不准怎么校准。所有内容都对着仓库里的源码写，改过的代码请以源码为准。</p>
+  <div class="specstrip">
+    <span class="chip">采样引脚 <b>GPIO8</b></span>
+    <span class="chip">分压比 <b>1 : 3</b></span>
+    <span class="chip">校准系数 <b>0.990476</b></span>
+    <span class="chip">采样周期 <b>100 ms</b></span>
+    <span class="chip">关机长按 <b>3 s</b></span>
+  </div>
+</header>
+
+<section id="s1">
+  <h2><span class="num">1</span>电池功能在哪</h2>
+  <p>代码里跟电池有关的东西分成两拨，分别在两个文件，别只找 <code>BAT_</code> 开头的那几个函数：</p>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>文件</th><th>管什么</th><th>关键符号</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="mono">src/BAT_Driver.h<br>src/BAT_Driver.cpp</td>
+          <td>读电池电压。整个文件十几行，一个全局变量加两个函数。</td>
+          <td class="mono">BAT_Init()<br>BAT_Get_Volts()<br>BAT_analogVolts</td>
+        </tr>
+        <tr>
+          <td class="mono">src/PWR_Key.h<br>src/PWR_Key.cpp</td>
+          <td>电源软锁存。电池供电时，整机能不能维持通电由这里的 GPIO7 决定，所以它属于电池功能。</td>
+          <td class="mono">PWR_Init()<br>PWR_Loop()<br>Shutdown()</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>数据流</h3>
+  <p>一次电压读数从引脚到屏幕，走的是这条链：</p>
+<pre><code>GPIO8 ──▶ ADC 12 bit ──▶ analogReadMilliVolts() ──▶ ×3.0 ÷ 0.990476
+                                                        │
+   屏幕上 "Battery Voltage" 文本框 ◀── BAT_analogVolts ◀─┘</code></pre>
+  <p>中间没有任何缓存或滤波：<code>BAT_Get_Volts()</code> 每被调用一次就真的采一次 ADC。</p>
+</section>
+
+<section id="s2">
+  <h2><span class="num">2</span>API 速查</h2>
+  <p>两个函数、一个变量、两个宏。整个电池采样模块就这么大。</p>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>符号</th><th>定义在</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="mono">BAT_ADC_PIN</td>
+          <td class="mono">BAT_Driver.h:4</td>
+          <td>电池分压采样引脚，默认 <code>8</code>。</td>
+        </tr>
+        <tr>
+          <td class="mono">Measurement_offset</td>
+          <td class="mono">BAT_Driver.h:5</td>
+          <td>校准系数，默认 <code>0.990476</code>。见第 7 节。</td>
+        </tr>
+        <tr>
+          <td class="mono">BAT_analogVolts</td>
+          <td class="mono">BAT_Driver.cpp:3</td>
+          <td>全局 <code>float</code>，保存最近一次读到的电压，单位伏特。初值 0。</td>
+        </tr>
+        <tr>
+          <td class="mono">BAT_Init()</td>
+          <td class="mono">BAT_Driver.cpp:5</td>
+          <td>把 ADC 分辨率设成 12 bit。<code>setup()</code> 里调一次就够。</td>
+        </tr>
+        <tr>
+          <td class="mono">BAT_Get_Volts()</td>
+          <td class="mono">BAT_Driver.cpp:10</td>
+          <td>采一次 ADC，更新 <code>BAT_analogVolts</code>，并把结果 <code>return</code> 出来。返回类型 <code>float</code>，单位 V。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>电源软锁存那部分：</p>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>符号</th><th>定义在</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="mono">PWR_KEY_Input_PIN</td>
+          <td class="mono">PWR_Key.h:6</td>
+          <td>PWR 按键输入，默认 <code>6</code>。</td>
+        </tr>
+        <tr>
+          <td class="mono">PWR_Control_PIN</td>
+          <td class="mono">PWR_Key.h:7</td>
+          <td>电源锁存控制脚，默认 <code>7</code>。拉高 = 维持供电，拉低 = 断电。</td>
+        </tr>
+        <tr>
+          <td class="mono">PWR_Init()</td>
+          <td class="mono">PWR_Key.cpp:18</td>
+          <td>上电后把 GPIO7 拉高，锁住供电。</td>
+        </tr>
+        <tr>
+          <td class="mono">PWR_Loop()</td>
+          <td class="mono">PWR_Key.cpp:5</td>
+          <td>查一次按键状态，如果是长按就调用 <code>Shutdown()</code>。需要被周期调用。</td>
+        </tr>
+        <tr>
+          <td class="mono">Shutdown()</td>
+          <td class="mono">PWR_Key.cpp:13</td>
+          <td>拉低 GPIO7，整机断电。函数不会返回有意义的结果。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="num">3</span>电压怎么算</h2>
+  <p>核心就这五行，在 <code>BAT_Driver.cpp:10</code>：</p>
+<pre><code><span class="kw">float</span> BAT_Get_Volts(<span class="kw">void</span>)
+{
+  <span class="kw">int</span> Volts = analogReadMilliVolts(BAT_ADC_PIN);   <span class="cmt">// 毫伏</span>
+  BAT_analogVolts = (<span class="kw">float</span>)(Volts * 3.0 / 1000.0) / Measurement_offset;
+  <span class="kw">return</span> BAT_analogVolts;
+}</code></pre>
+  <p>把公式单独拎出来：</p>
+<pre><code>电池电压 = (ADC 毫伏 / 1000) × 3.0 ÷ 0.990476</code></pre>
+  <p>两个常数各管一件事：</p>
+  <ul>
+    <li><code>× 3.0</code> —— 板上有个 1/3 分压，ADC 引脚看到的只有电池电压的三分之一，所以要乘回去。算一下量程：ADC 引脚最高约 3.3 V，乘 3 就是 9.9 V 的测量上限，够用。</li>
+    <li><code>÷ 0.990476</code> —— 出厂校准，等效于把读数再抬高约 1%。系数小于 1 做的是除法，读数变大。</li>
+  </ul>
+  <p>用的是 <code>analogReadMilliVolts()</code> 而不是 <code>analogRead()</code>。前者会拿芯片里烧好的 eFuse 校准曲线把原始值换算成毫伏，比原始码值准得多，代价是每次调用多花几十微秒。<code>BAT_Init()</code> 里那句 <code>analogReadResolution(12)</code> 对 <code>analogReadMilliVolts()</code> 其实没有影响，真正起作用的是 ADC 自己的校准。</p>
+</section>
+
+<section id="s4">
+  <h2><span class="num">4</span>最小用法</h2>
+  <p>自己写个新程序，把电池电压读到串口：</p>
+<pre><code><span class="cmt">#include "BAT_Driver.h"</span>
+
+<span class="kw">void</span> setup() {
+  Serial.begin(115200);
+  BAT_Init();                        <span class="cmt">// 只调一次</span>
+}
+
+<span class="kw">void</span> loop() {
+  <span class="kw">float</span> v = BAT_Get_Volts();          <span class="cmt">// 真采一次 ADC</span>
+  Serial.printf(<span class="cmt">"%.2f V\r\n"</span>, v);
+
+  <span class="cmt">// 或者不动 ADC，只拿最近一次的结果：</span>
+  <span class="cmt">// float cached = BAT_analogVolts;</span>
+
+  delay(1000);
+}</code></pre>
+
+  <h3>本工程里实际是怎么接的</h3>
+  <ul>
+    <li><code>LVGL_Arduino.ino:42</code> 在 <code>setup()</code> 里调 <code>BAT_Init()</code>。</li>
+    <li><code>LVGL_Arduino.ino:20</code> 在 <code>DriverTask</code> 里调 <code>BAT_Get_Volts()</code>。这个任务钉在核心 0，优先级 3，循环里 <code>vTaskDelay(pdMS_TO_TICKS(100))</code>，所以采样率约 10 Hz。</li>
+    <li><code>LVGL_Example.cpp:324</code> 把 <code>BAT_analogVolts</code> 格式化成 <code>%.2f V</code>，写进界面上那个 <code>BAT_Volts</code> 文本框，标签是 "Battery Voltage"。刷新它的是 LVGL 定时器 <code>example1_increase_lvgl_tick</code>，周期也是 100 ms。</li>
+  </ul>
+  <p>写代码的人分在两个任务里：<code>BAT_analogVolts</code> 由核心 0 的采样任务写，被核心 1 上跑的 LVGL 任务读。一个 4 字节对齐的 <code>float</code> 在 Xtensa 上读写是单条指令，不会出现读到一半的脏值，所以这里不需要加锁。如果以后换成 <code>double</code> 或结构体，就得自己加临界区了。</p>
+
+  <div class="callout">
+    <span class="tag">开机后的头几秒</span>
+    <p><code>Driver_Loop()</code> 在整个 <code>setup()</code> 的最后才创建 <code>DriverTask</code>。在那之前没人调 <code>BAT_Get_Volts()</code>，屏幕上的电压会显示 <code>0.00 V</code>。这是正常的，不是没读到电池。</p>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="num">5</span>开机与关机</h2>
+  <p>这块板子没有机械电源开关。按下 PWR 键只是让硬件临时给电，真正"记住"这个开机动作的是固件——它把 GPIO7 拉高，用一个软锁存电路把电源维持住。GPIO7 一拉低，电就断了，MCU 想拦都拦不住。</p>
+
+  <h3>开机</h3>
+  <ol class="steps">
+    <li><span class="n">1</span><div class="body"><p>接上电池，按住 PWR 键不放。硬件电路此时给整机供电，芯片开始启动。</p></div></li>
+    <li><span class="n">2</span><div class="body"><p>固件跑到 <code>PWR_Init()</code>，检测到按键还按着（<code>PWR_KEY_Input_PIN</code> 读到低电平），于是把 <code>PWR_Control_PIN</code> 拉高，锁存供电。</p></div></li>
+    <li><span class="n">3</span><div class="body"><p>松开 PWR 键。因为锁存已经建立，系统继续运行。</p></div></li>
+  </ol>
+  <div class="callout trap">
+    <span class="tag">注意</span>
+    <p>第 2 步必须在松手之前完成。如果固件卡在启动早期、或者被改坏了，松开按键的瞬间就会断电，表现为"按一下亮一下就灭"。遇到这个现象，先查 <code>PWR_Init()</code> 有没有被调用、GPIO7 有没有被别的代码占用。</p>
+  </div>
+
+  <h3>关机</h3>
+  <p>长按 PWR 键 3 秒。链路是这样走的：</p>
+<pre><code>按住 PWR 键 3 s
+   └─▶ OneButton 触发 LongPressStart
+         └─▶ Button_Driver.cpp 的回调把 PWR_KEY_State 设为 LongPressStart
+               └─▶ PWR_Loop() 读到这个状态
+                     └─▶ Shutdown()
+                           └─▶ digitalWrite(PWR_Control_PIN, LOW)  <span class="cmt">// 断电</span></code></pre>
+  <p>3 秒这个阈值在 <code>Button_Driver.cpp:16</code> 的 <code>button2.setLongPressIntervalMs(3000)</code>。<code>PWR_Loop()</code> 被 <code>DriverTask</code> 每 100 ms 调一次，所以从松手到真正断电最多还有 100 ms 的延迟，看起来就是"松手后灯还亮了一下"。</p>
+
+  <h3>相应的代码</h3>
+<pre><code><span class="kw">void</span> PWR_Init(<span class="kw">void</span>) {
+  pinMode(PWR_Control_PIN, OUTPUT);
+  digitalWrite(PWR_Control_PIN, LOW);
+  vTaskDelay(100);
+  <span class="kw">if</span>(!digitalRead(PWR_KEY_Input_PIN)) {          <span class="cmt">// 按键被按住</span>
+    digitalWrite(PWR_Control_PIN, HIGH);         <span class="cmt">// 锁存供电</span>
+  }
+}
+
+<span class="kw">void</span> Shutdown(<span class="kw">void</span>) {
+  digitalWrite(PWR_Control_PIN, LOW);           <span class="cmt">// 切断锁存，整机断电</span>
+  LCD_Backlight = 0;
+}</code></pre>
+
+  <div class="callout trap">
+    <span class="tag">这是个坑</span>
+    <p><code>Shutdown()</code> 里那句 <code>LCD_Backlight = 0</code> 只改了变量，并没有调用 <code>Set_Backlight()</code>，背光 PWM 其实一点没变。因为紧接着就断电了，平时看不出来。但千万别把它当"熄屏休眠"用——它唯一真正的作用是拉低 GPIO7。想要熄屏，单独调 <code>Set_Backlight(0)</code>。</p>
+  </div>
+</section>
+
+<section id="s6">
+  <h2><span class="num">6</span>电压换算电量</h2>
+  <p>代码里只有电压，没有百分比。要显示电量，得自己按单节锂电的电压曲线换算。下面这条刻度是开路电压的粗略对应，范围取 3.30 V 到 4.20 V：</p>
+
+  <div class="scale">
+    <div class="scale-zones" role="img" aria-label="锂电池电压刻度，3.30 到 4.20 伏按比例分三段">
+      <span class="z-low"></span><span class="z-mid"></span><span class="z-high"></span>
+    </div>
+    <div class="scale-ticks" aria-hidden="true">
+      <span class="tk-1">3.30</span><span class="tk-2">3.70</span><span class="tk-3">3.90</span><span class="tk-4">4.20 V</span>
+    </div>
+    <div class="scale-legend">
+      <span><i class="dot d-low"></i><b>3.30–3.70 V</b> 该充电了</span>
+      <span><i class="dot d-mid"></i><b>3.70–3.90 V</b> 还能用</span>
+      <span><i class="dot d-high"></i><b>3.90–4.20 V</b> 电量充足</span>
+    </div>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th class="mono">电压</th><th class="mono">大致电量</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">4.20 V</td><td class="mono">100%</td><td>满电。充电刚结束时会是这个值。</td></tr>
+        <tr><td class="mono">4.00 V</td><td class="mono">80%</td><td></td></tr>
+        <tr><td class="mono">3.85 V</td><td class="mono">60%</td><td></td></tr>
+        <tr><td class="mono">3.70 V</td><td class="mono">40%</td><td>标称电压。</td></tr>
+        <tr><td class="mono">3.60 V</td><td class="mono">25%</td><td></td></tr>
+        <tr><td class="mono">3.50 V</td><td class="mono">10%</td><td>WiFi 发射时可能已经触发欠压复位。</td></tr>
+        <tr><td class="mono">3.30 V</td><td class="mono">0%</td><td>放电截止。再低会伤电池。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>别拿它当精确电量</h3>
+  <ul>
+    <li>带载时读数会明显偏低。WiFi 或屏幕背光一拉电流，电压瞬间掉几十到上百毫伏，采到的值跟着掉。</li>
+    <li>ESP32-S3 加屏幕在 3.4 V 以下就容易欠压复位。实际能用的"没电点"比表里的 3.30 V 高，别等它掉到 3.3 V 才提醒充电。</li>
+    <li>临时负载、温度、电池新旧都会让曲线偏移。判断"还能不能撑"够用，判断"剩余多少分钟"不够用。</li>
+  </ul>
+  <p>要更稳的读数，就在 <code>BAT_Get_Volts()</code> 外面套一层多次采样取平均，比如连读 8 次去掉最大最小再平均。Radio 空闲的时候采样噪声最小。</p>
+</section>
+
+<section id="s7">
+  <h2><span class="num">7</span>校准</h2>
+  <p>读数差个 1~2% 是分压电阻的误差，换个电池、换块板子都可能不一样，需要重标一次 <code>Measurement_offset</code>。整个过程五分钟：</p>
+
+  <ol class="steps">
+    <li><span class="n">1</span><div class="body"><p>接上电池，让板子跑起来，静置一会儿别做重活。用万用表直接量电池两端的真实电压，记作 <code>V_real</code>。</p></div></li>
+    <li><span class="n">2</span><div class="body"><p>同时读固件显示的电压，屏幕上的 "Battery Voltage" 或串口打印的 <code>BAT_analogVolts</code>，记作 <code>V_fw</code>。两个读数要尽量在同一时刻取。</p></div></li>
+    <li><span class="n">3</span><div class="body"><p>套公式算新系数：</p>
+<pre><code>新 offset = 0.990476 × V_fw ÷ V_real</code></pre></div></li>
+    <li><span class="n">4</span><div class="body"><p>把结果写回 <code>BAT_Driver.h:5</code> 的 <code>Measurement_offset</code>，重新编译烧录，再对一次表。</p></div></li>
+  </ol>
+
+  <h3>举个例子</h3>
+  <p>万用表读到 3.90 V，固件显示 3.95 V，说明固件读高了：</p>
+<pre><code>新 offset = 0.990476 × 3.95 ÷ 3.90 ≈ 1.0032</code></pre>
+  <p>把 <code>Measurement_offset</code> 改成 <code>1.0032</code>。注意系数的作用是除法，想让它读小就要把系数调大——跟直觉相反，改的时候别弄反。</p>
+  <p>校准要在轻载下做。如果校准时开着 WiFi 传输，会把负载压降一起标进去，等设备闲下来读数就偏高了。</p>
+</section>
+
+<section id="s8">
+  <h2><span class="num">8</span>排查表</h2>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>现象</th><th>先查什么</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>一直显示 <code>0.00 V</code></td>
+          <td><code>BAT_Get_Volts()</code> 有没有人调。<code>BAT_analogVolts</code> 初值就是 0，没人采样就一直是 0。开机头几秒显示 0 是正常的，见第 4 节。</td>
+        </tr>
+        <tr>
+          <td>读数比万用表高或低一点</td>
+          <td>正常的分压电阻误差。按第 7 节重新校准。</td>
+        </tr>
+        <tr>
+          <td>读数跳得厉害</td>
+          <td>WiFi / BLE 发射噪声。多次采样取平均；采样时机避开射频活动。</td>
+        </tr>
+        <tr>
+          <td>没接电池也读得出值</td>
+          <td>引脚悬空时会采到噪声。要判断"有没有电池"，得先看读数是否落在合理区间，光看是不是 0 不够。</td>
+        </tr>
+        <tr>
+          <td>长按 PWR 键关不了机</td>
+          <td><code>PWR_Loop()</code> 有没有被周期调用。<code>DriverTask</code> 挂了的话，长按状态没人处理，就永远关不了机。</td>
+        </tr>
+        <tr>
+          <td>松手就断电</td>
+          <td><code>PWR_Init()</code> 没跑到，或者 GPIO7 被别的代码拉低了。见第 5 节。</td>
+        </tr>
+        <tr>
+          <td>电压明显不对，差好几倍</td>
+          <td>分压比不是 1:3。见第 9 节。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="s9">
+  <h2><span class="num">9</span>换板子改什么</h2>
+  <p>这套代码来自微雪 ESP32-S3-LCD-2.8 的例程，搬到别的板子上要动这几处：</p>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>情况</th><th>改哪里</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>采样引脚不是 GPIO8</td>
+          <td><code>BAT_Driver.h:4</code> 的 <code>BAT_ADC_PIN</code></td>
+        </tr>
+        <tr>
+          <td>分压比不是 1:3</td>
+          <td><code>BAT_Driver.cpp:13</code> 里的 <code>3.0</code>。常见的还有 1:2（改成 <code>2.0</code>）。改完必须重新按第 7 节校准。</td>
+        </tr>
+        <tr>
+          <td>PWR 键或锁存脚不同</td>
+          <td><code>PWR_Key.h</code> 的 <code>PWR_KEY_Input_PIN</code> 和 <code>PWR_Control_PIN</code></td>
+        </tr>
+        <tr>
+          <td>板子没有软锁存电路</td>
+          <td>删掉 <code>PWR_Init()</code> 里的 GPIO7 逻辑，保留按键供其他用途。别让代码去驱动一个不存在的锁存脚。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>引脚占用</h3>
+  <p>移植前先对一遍，避免跟下面的冲突：</p>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th class="mono">GPIO</th><th>用途</th><th>定义在</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">0</td><td>BOOT 按键</td><td class="mono">Button_Driver.h:6</td></tr>
+        <tr><td class="mono">5</td><td>LCD 背光 PWM</td><td class="mono">Display_ST7789.h:15</td></tr>
+        <tr><td class="mono">6</td><td>PWR 按键输入（同时是 Button 2）</td><td class="mono">PWR_Key.h:6</td></tr>
+        <tr><td class="mono">7</td><td>电源锁存控制</td><td class="mono">PWR_Key.h:7</td></tr>
+        <tr><td class="mono">8</td><td>电池 ADC 采样</td><td class="mono">BAT_Driver.h:4</td></tr>
+        <tr><td class="mono">10 / 11</td><td>I2C SCL / SDA</td><td class="mono">I2C_Driver.h:4</td></tr>
+        <tr><td class="mono">14 / 16 / 17 / 21</td><td>SD 卡</td><td class="mono">SD_Card.h:6</td></tr>
+        <tr><td class="mono">39 / 40 / 41 / 42 / 45</td><td>LCD 复位 / 时钟 / DC / CS / MOSI</td><td class="mono">Display_ST7789.h:8</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>GPIO8 属于 ESP32-S3 的 ADC1，WiFi 开着也能正常采样，换引脚时优先挑 ADC1 范围内的脚（GPIO1 到 GPIO10）。</p>
+</section>
+
+<footer class="doc">
+  <p>本手册对着 STS 固件仓库的源码写成，涉及的文件：<code>src/BAT_Driver.h</code>、<code>src/BAT_Driver.cpp</code>、<code>src/PWR_Key.h</code>、<code>src/PWR_Key.cpp</code>、<code>src/LVGL_Arduino.ino</code>、<code>src/LVGL_Example.cpp</code>、<code>src/Button_Driver.h</code>。充电电路和电池接口属于硬件，代码里没有体现，需要对照板子的原理图核实。</p>
+</footer>
+
+</main>
+</div>
